@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E7A1B0032E10AA01001F1F5D /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E7A1B0022E10AA01001F1F5D /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		E7C3C4E42E056E76001F1F5D /* Manicrypt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Manicrypt.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7A1B0032E10AA01001F1F5D /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = Manicrypt;
 			packageProductDependencies = (
+				E7A1B0022E10AA01001F1F5D /* Sparkle */,
 			);
 			productName = Manicrypt;
 			productReference = E7C3C4E42E056E76001F1F5D /* Manicrypt.app */;
@@ -95,6 +101,9 @@
 			);
 			mainGroup = E7C3C4DB2E056E76001F1F5D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E7A1B0012E10AA01001F1F5D /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E7C3C4E52E056E76001F1F5D /* Products */;
 			projectDirPath = "";
@@ -355,6 +364,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E7A1B0012E10AA01001F1F5D /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E7A1B0022E10AA01001F1F5D /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E7A1B0012E10AA01001F1F5D /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E7C3C4DC2E056E76001F1F5D /* Project object */;
 }

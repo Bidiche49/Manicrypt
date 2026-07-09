@@ -32,14 +32,21 @@
     <key>CFBundleDisplayName</key>
     <string>Manicrypt</string>
     
-    <key>CFBundleVersion</key>
-    <string>1.0</string>
-    
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    
-    <!-- Minimum macOS version -->
+    <!-- CFBundleVersion / CFBundleShortVersionString : générés depuis les build settings
+         (CURRENT_PROJECT_VERSION / MARKETING_VERSION), gérés par scripts/release.sh -->
+
+    <!-- Minimum macOS version (aligné sur MACOSX_DEPLOYMENT_TARGET) -->
     <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
+    <string>15.0</string>
+
+    <!-- Sparkle : mises à jour automatiques -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/Bidiche49/Manicrypt/master/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>pxCTyUyOq1vz2iEMc7iWaOApqWfjgr37B3xx62qKLvM=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
 </dict>
 </plist>

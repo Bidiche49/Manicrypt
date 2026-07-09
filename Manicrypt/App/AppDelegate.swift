@@ -8,6 +8,7 @@
 import Cocoa
 import SwiftUI
 import LocalAuthentication
+import Sparkle
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -15,6 +16,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var settingsHostingController: NSHostingController<SettingsView>?
     private var menu: NSMenu!
+    // Sparkle : démarre le cycle de vérification des mises à jour (SUFeedURL de l'Info.plist)
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialiser OpenSSL
@@ -177,9 +180,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Préférences
         menu.addItem(NSMenuItem(title: "Préférences...", action: #selector(showSettings), keyEquivalent: ","))
-        
+
         menu.addItem(NSMenuItem.separator())
-        
+
+        // Mises à jour (Sparkle)
+        let updateItem = NSMenuItem(title: "Vérifier les mises à jour…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        updateItem.target = updaterController
+        menu.addItem(updateItem)
+
         // À propos et Quitter
         menu.addItem(NSMenuItem(title: "À propos de Manicrypt", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quitter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
