@@ -34,7 +34,8 @@ cd "$REPO_DIR"
 # --- Garde-fous -------------------------------------------------------------
 [ "$(git branch --show-current)" = "master" ] || { echo "❌ Les releases se font depuis master (branche courante: $(git branch --show-current))"; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "❌ Working tree non propre — commite ou stash d'abord"; exit 1; }
-security find-identity -v -p codesigning | grep -q "Developer ID Application" || { echo "❌ Certificat Developer ID Application absent du trousseau"; exit 1; }
+# Cert Developer ID : local OU cloud-managed (Xcode 13+ signe en cloud, rien dans le trousseau — OK)
+security find-identity -v -p codesigning | grep -q "Developer ID Application" || echo "ℹ️  Pas de cert Developer ID local — signature cloud Xcode (gérée par -allowProvisioningUpdates)"
 xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || { echo "❌ Profil notarytool '$NOTARY_PROFILE' absent — lancer: xcrun notarytool store-credentials $NOTARY_PROFILE"; exit 1; }
 
 # Localiser sign_update (fourni par le package SPM Sparkle)
