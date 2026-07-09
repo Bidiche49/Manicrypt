@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App en arrière-plan (menu bar) -->
+    <key>LSUIElement</key>
+    <true/>
+    
+    <!-- Permissions pour Apple Events -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Manicrypt nécessite l'accès aux événements Apple pour copier et coller automatiquement le texte chiffré/déchiffré avec les raccourcis globaux ⌘⌥E et ⌘⌥D.</string>
+    
+    <!-- Permissions pour l'accessibilité -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Manicrypt nécessite l'accès à l'accessibilité pour capturer le texte sélectionné et utiliser les raccourcis globaux ⌘⌥E (chiffrer) et ⌘⌥D (déchiffrer) dans toutes les applications.</string>
+    
+    <!-- Permettre les événements système -->
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>Manicrypt utilise les événements système pour les raccourcis globaux de chiffrement.</string>
+    
+    <!-- Permettre les notifications -->
+    <key>NSUserNotificationUsageDescription</key>
+    <string>Manicrypt utilise les notifications pour vous avertir d'actions importantes.</string>
+
+    <!-- Version et identifiants -->
+    <key>CFBundleIdentifier</key>
+    <string>com.nztd.Manicrypt</string>
+    
+    <key>CFBundleName</key>
+    <string>Manicrypt</string>
+    
+    <key>CFBundleDisplayName</key>
+    <string>Manicrypt</string>
+    
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    
+    <!-- Minimum macOS version -->
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+</dict>
+</plist>
