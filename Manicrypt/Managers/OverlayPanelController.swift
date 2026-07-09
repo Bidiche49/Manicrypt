@@ -96,6 +96,10 @@ final class OverlayPanelController {
             self.positionPanelNearCursor()
             panel.orderFrontRegardless()
 
+            // Annuler tout timer HUD armé par un `present` antérieur du même tour de
+            // run-loop (sinon son auto-fermeture pourrait fermer CETTE présentation).
+            self.hudTimer?.invalidate()
+            self.hudTimer = nil
             if let autoDismiss {
                 self.hudTimer = Timer.scheduledTimer(withTimeInterval: autoDismiss, repeats: false) { [weak self] _ in
                     self?.close()
