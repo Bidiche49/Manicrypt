@@ -19,6 +19,12 @@ class GlobalHotkeyManager: ObservableObject {
     private var eventHandler: EventHandlerRef?
     private var sessionPassphrase: String?
     private var sessionTimer: Timer?
+
+    /// Sérialise les opérations : une seule chaîne capture→crypto→presse-papier à
+    /// la fois. Empêche l'entrelacement de deux raccourcis rapprochés qui, pendant
+    /// la fenêtre transitoire d'un collage in-place, laisserait le clair sur le
+    /// presse-papier. Manipulé uniquement sur le main thread.
+    private var isProcessing = false
     
     // État publié pour l'UI
     @Published var isEnabled: Bool = false
@@ -310,10 +316,19 @@ class GlobalHotkeyManager: ObservableObject {
     func processSelectedText(encrypt: Bool) {
         print("🔄 Traitement de la sélection — chiffrement: \(encrypt)")
 
+        // Sérialisation : ignorer une nouvelle demande tant qu'une opération est
+        // en cours (voir `isProcessing`). Évite l'entrelacement des presse-papiers.
+        guard !isProcessing else {
+            print("⏳ Opération déjà en cours — raccourci ignoré")
+            return
+        }
+        isProcessing = true
+
         // Session prête ? (déclenche Touch ID en production ; couvre la ré-auth
         // après expiration). En cas d'échec, l'erreur s'affiche dans l'overlay.
         if let errorState = ensureSession() {
             OverlayPanelController.shared.showError(errorState)
+            finishProcessing()
             return
         }
 
@@ -328,15 +343,25 @@ class GlobalHotkeyManager: ObservableObject {
         }
     }
 
+    /// Libère le verrou de sérialisation. Appelé à la fin de CHAQUE chemin terminal
+    /// (y compris après la restauration différée d'un collage in-place).
+    private func finishProcessing() {
+        isProcessing = false
+    }
+
     /// Applique le comportement contextuel et les règles strictes de presse-papier.
+    /// Chaque chemin terminal libère le verrou : les chemins synchrones via
+    /// `finishProcessing()`, les chemins in-place via `pasteInPlace` (après restore).
     private func handleCapture(_ capture: SelectionCapture?, encrypt: Bool, context: FocusContext) {
         guard let passphrase = sessionPassphrase else {
             OverlayPanelController.shared.showError(.failure("Session expirée."))
+            finishProcessing()
             return
         }
         guard let capture = capture else {
             // Capture vide : `captureSelection` a déjà restauré le presse-papier.
             OverlayPanelController.shared.showError(.emptySelection)
+            finishProcessing()
             return
         }
 
@@ -345,10 +370,11 @@ class GlobalHotkeyManager: ObservableObject {
             // ⌃⇧E in-place : chiffre et colle par-dessus la sélection.
             switch performEncrypt(capture.text, passphrase: passphrase) {
             case .success(let cipher):
-                pasteInPlace(cipher, restoringTo: capture.snapshot)
+                pasteInPlace(cipher, restoringTo: capture.snapshot) // libère le verrou après restore
             case .failure(let message):
                 restorePasteboard(capture.snapshot)
                 OverlayPanelController.shared.showError(.failure(message))
+                finishProcessing()
             }
 
         case (true, .nonEditable):
@@ -362,16 +388,18 @@ class GlobalHotkeyManager: ObservableObject {
                 restorePasteboard(capture.snapshot)
                 OverlayPanelController.shared.showError(.failure(message))
             }
+            finishProcessing()
 
         case (false, .editable):
             // ⌃⇧D in-place : déchiffre et colle par-dessus la sélection.
             switch performDecrypt(capture.text, passphrase: passphrase) {
             case .success(let plaintext):
-                pasteInPlace(plaintext, restoringTo: capture.snapshot)
+                pasteInPlace(plaintext, restoringTo: capture.snapshot) // libère le verrou après restore
             case .failure:
                 // Rien à coller : restaurer, puis proposer l'overlay + autre passphrase.
                 restorePasteboard(capture.snapshot)
                 OverlayPanelController.shared.showDecryptFailure(retry: makeRetry(cipher: capture.text))
+                finishProcessing()
             }
 
         case (false, .nonEditable):
@@ -384,6 +412,7 @@ class GlobalHotkeyManager: ObservableObject {
             case .failure:
                 OverlayPanelController.shared.showDecryptFailure(retry: makeRetry(cipher: capture.text))
             }
+            finishProcessing()
         }
     }
 
@@ -479,9 +508,12 @@ class GlobalHotkeyManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self = self else { return }
             self.simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
-            // Laisser le collage aboutir avant de restaurer le presse-papier.
+            // Laisser le collage aboutir avant de restaurer le presse-papier, puis
+            // libérer le verrou : aucune autre opération ne démarre tant que le
+            // texte transitoire n'a pas quitté le presse-papier.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.restorePasteboard(snapshot)
+                self.finishProcessing()
             }
         }
     }
