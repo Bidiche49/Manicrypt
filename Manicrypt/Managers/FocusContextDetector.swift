@@ -44,10 +44,11 @@ final class FocusContextDetector {
             kAXFocusedUIElementAttribute as CFString,
             &focusedRef
         )
-        guard focusStatus == .success, let focused = focusedRef else {
+        guard focusStatus == .success, let focused = focusedRef,
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else {
             return .nonEditable
         }
-        // Les valeurs AX d'élément sont des AXUIElement (types CoreFoundation).
+        // Type vérifié ci-dessus : le cast ne peut pas échouer (pas de crash).
         let element = focused as! AXUIElement
 
         // 1) Rôle texte ?
