@@ -147,28 +147,39 @@ class GlobalHotkeyManager: ObservableObject {
     
     // MARK: - Session Management
     
-    private func startSecureSession() {
+    /// S'assure qu'une session est prête : charge la passphrase depuis le Keychain
+    /// (déclenche Touch ID en production, silencieux en DEBUG) si aucune session
+    /// active. Le cas « session expirée » retombe ici et ré-authentifie.
+    /// Retourne un état d'erreur à afficher dans l'overlay, ou `nil` si prête.
+    /// Exécuté sur le main thread ; `loadGlobalPassphrase` y bloque pendant Touch ID
+    /// (comportement historique conservé — l'UI d'auth vit dans un autre process).
+    private func ensureSession() -> OverlayState? {
+        if sessionActive, sessionPassphrase != nil { return nil }
+
+        guard SecureKeychainManager.shared.hasGlobalPassphrase() else {
+            return .passphraseNotConfigured
+        }
+
         do {
             let passphrase = try SecureKeychainManager.shared.loadGlobalPassphrase()
             sessionPassphrase = passphrase
             sessionActive = true
-            
-            // Démarrer le timer de session
-            sessionTimer?.invalidate()
-            sessionTimer = Timer.scheduledTimer(withTimeInterval: sessionTimeout, repeats: false) { _ in
-                DispatchQueue.main.async {
-                    self.clearSession()
-                    self.showNotification(title: "Session expirée", message: "Authentifiez-vous à nouveau pour utiliser les raccourcis")
-                }
-            }
-            
+            startSessionTimer()
             print("🔐 Session sécurisée démarrée")
+            return nil
         } catch {
             let errorMessage = SecureKeychainManager.shared.handleKeychainError(error)
             print("❌ Erreur démarrage session: \(errorMessage)")
-            
+            return .failure(errorMessage)
+        }
+    }
+
+    private func startSessionTimer() {
+        sessionTimer?.invalidate()
+        sessionTimer = Timer.scheduledTimer(withTimeInterval: sessionTimeout, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
-                self.showNotification(title: "Erreur", message: errorMessage)
+                self?.clearSession()
+                self?.showNotification(title: "Session expirée", message: "Authentifiez-vous à nouveau pour utiliser les raccourcis")
             }
         }
     }
@@ -286,143 +297,178 @@ class GlobalHotkeyManager: ObservableObject {
         }
     }
     
-    // MARK: - Text Processing
-    
+    // MARK: - Text Processing (overlay)
+
+    /// Point d'entrée des deux raccourcis. Prépare la session (Touch ID si besoin),
+    /// capture la sélection via ⌘C, chiffre/déchiffre, puis présente l'overlay.
+    /// Ne modifie jamais le contenu source (plus aucun collage ⌘V).
     func processSelectedText(encrypt: Bool) {
-        print("🔄 Traitement du texte sélectionné, chiffrement: \(encrypt)")
-        
-        // Vérifier ou démarrer la session
-        if !sessionActive {
-            startSecureSession()
-            
-            // Si la session n'a pas pu démarrer, arrêter
-            guard sessionActive else {
-                return
-            }
-        }
-        
-        // Attendre un court délai pour s'assurer que la sélection est complète
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            self.performTextProcessing(encrypt: encrypt)
-        }
-    }
-    
-    private func performTextProcessing(encrypt: Bool) {
-        guard let passphrase = sessionPassphrase else {
-            showNotification(title: "Erreur", message: "Session expirée")
+        print("🔄 Traitement de la sélection — chiffrement: \(encrypt)")
+
+        // Session prête ? (déclenche Touch ID en production ; couvre la ré-auth
+        // après expiration). En cas d'échec, l'erreur s'affiche dans l'overlay.
+        if let errorState = ensureSession() {
+            OverlayPanelController.shared.showError(errorState)
             return
         }
-        
-        // Sauvegarder le presse-papiers actuel
-        let pasteboard = NSPasteboard.general
-        let originalContents = pasteboard.string(forType: .string)
-        
-        // Simuler Cmd+C pour copier la sélection
-        simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
-        
-        // Attendre que le presse-papiers soit mis à jour
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            guard let selectedText = pasteboard.string(forType: .string),
-                  !selectedText.isEmpty,
-                  selectedText != originalContents else {
-                print("❌ Aucun texte sélectionné ou presse-papiers inchangé")
-                self.showNotification(title: "Manicrypt", message: "Sélectionnez du texte avant d'utiliser le raccourci")
-                
-                // Restaurer le presse-papiers original
-                if let original = originalContents {
-                    pasteboard.clearContents()
-                    pasteboard.setString(original, forType: .string)
-                }
-                return
-            }
-            
-            print("✅ Texte sélectionné capturé: \(selectedText.prefix(50))...")
-            
-            // Traiter le texte
-            if let processedText = self.performCrypto(text: selectedText, passphrase: passphrase, encrypt: encrypt) {
-                print("✅ Texte traité avec succès")
-                
-                // Mettre le résultat dans le presse-papiers
-                pasteboard.clearContents()
-                pasteboard.setString(processedText, forType: .string)
-                
-                // Attendre un court délai puis coller
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    // Simuler Cmd+V pour coller
-                    self.simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
-                    
-                    // Notification de succès
-                    self.showNotification(
-                        title: "Manicrypt",
-                        message: encrypt ? "Texte chiffré ✅" : "Texte déchiffré ✅"
-                    )
-                    
-                    // Restaurer le presse-papiers après un délai
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        if let original = originalContents {
-                            pasteboard.clearContents()
-                            pasteboard.setString(original, forType: .string)
-                            print("📋 Presse-papiers original restauré")
-                        }
-                    }
-                }
-            } else {
-                // Restaurer le presse-papiers en cas d'erreur
-                if let original = originalContents {
-                    pasteboard.clearContents()
-                    pasteboard.setString(original, forType: .string)
-                }
+
+        // Court délai pour laisser la sélection se stabiliser, puis capturer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.captureSelection { capture in
+                self?.handleCapture(capture, encrypt: encrypt)
             }
         }
     }
-    
-    private func performCrypto(text: String, passphrase: String, encrypt: Bool) -> String? {
+
+    /// Aiguille le texte capturé vers le chiffrement ou le déchiffrement et gère
+    /// les règles strictes de presse-papier propres à chaque direction.
+    private func handleCapture(_ capture: SelectionCapture?, encrypt: Bool) {
+        guard let passphrase = sessionPassphrase else {
+            OverlayPanelController.shared.showError(.failure("Session expirée."))
+            return
+        }
+        guard let capture = capture else {
+            // Capture vide : `captureSelection` a déjà restauré le presse-papier.
+            OverlayPanelController.shared.showError(.emptySelection)
+            return
+        }
+
         if encrypt {
-            print("🔐 Chiffrement en cours...")
-            if let result = swift_encrypt_data(text, passphrase) {
-                defer { free_crypto_result(result) }
-                let cryptoResult = result.pointee
-                if cryptoResult.success == 1 {
-                    if let base64 = swift_base64_encode(cryptoResult.data, Int32(cryptoResult.length)) {
-                        defer { free(base64) }
-                        print("✅ Chiffrement réussi")
-                        return String(cString: base64)
-                    }
-                } else {
-                    let errorMsg = String(cString: cryptoResult.error_message)
-                    print("❌ Erreur chiffrement: \(errorMsg)")
-                    showNotification(title: "Erreur", message: errorMsg)
-                }
+            switch performEncrypt(capture.text, passphrase: passphrase) {
+            case .success(let cipher):
+                // ⌃⇧E : le presse-papier final contient le chiffré (c'est la feature).
+                writeToPasteboard(cipher)
+                OverlayPanelController.shared.showEncrypted(cipher)
+            case .failure(let message):
+                // Ne pas laisser le clair capturé dans le presse-papier.
+                restorePasteboard(capture.snapshot)
+                OverlayPanelController.shared.showError(.failure(message))
             }
         } else {
-            print("🔓 Déchiffrement en cours...")
-            if let decodeResult = swift_base64_decode(text) {
-                defer { free_crypto_result(decodeResult) }
-                let decodedData = decodeResult.pointee
-                if decodedData.success == 1 {
-                    if let decryptResult = swift_decrypt_data(
-                        decodedData.data,
-                        Int32(decodedData.length),
-                        passphrase
-                    ) {
-                        defer { free_crypto_result(decryptResult) }
-                        let decryptData = decryptResult.pointee
-                        if decryptData.success == 1 {
-                            print("✅ Déchiffrement réussi")
-                            return String(cString: decryptData.data)
-                        } else {
-                            let errorMsg = String(cString: decryptData.error_message)
-                            print("❌ Erreur déchiffrement: \(errorMsg)")
-                            showNotification(title: "Erreur", message: errorMsg)
-                        }
-                    }
-                } else {
-                    print("❌ Erreur décodage Base64")
-                    showNotification(title: "Erreur", message: "Format Base64 invalide")
-                }
+            // ⌃⇧D : restaurer immédiatement le presse-papier — le chiffré capturé
+            // n'y persiste pas et le clair n'y transite jamais automatiquement.
+            restorePasteboard(capture.snapshot)
+            switch performDecrypt(capture.text, passphrase: passphrase) {
+            case .success(let plaintext):
+                OverlayPanelController.shared.showDecrypted(plaintext)
+            case .failure:
+                OverlayPanelController.shared.showError(.notManicryptMessage)
             }
         }
-        return nil
+    }
+
+    // MARK: - Capture de sélection
+
+    /// Résultat d'une capture : le texte sélectionné + un instantané complet du
+    /// presse-papier utilisateur (tous types) pour restauration à l'identique.
+    private struct SelectionCapture {
+        let text: String
+        let snapshot: [NSPasteboardItem]
+    }
+
+    /// Capture la sélection courante via un ⌘C simulé, après avoir sauvegardé le
+    /// presse-papier. En cas de succès, laisse le texte copié au presse-papier :
+    /// c'est à l'appelant de décider (⌃⇧D restaure, ⌃⇧E écrase avec le chiffré).
+    /// En cas d'échec (rien de textuel copié), restaure lui-même le presse-papier
+    /// à l'identique — y compris si un ⌘C a copié du non-texte (image, fichier) —
+    /// et retourne `nil`.
+    private func captureSelection(completion: @escaping (SelectionCapture?) -> Void) {
+        let pasteboard = NSPasteboard.general
+        let snapshot = snapshotPasteboard()
+        let changeCountBefore = pasteboard.changeCount
+
+        simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
+
+        // Laisser le temps à l'app source de répondre au ⌘C.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            // Le changeCount est plus fiable qu'une comparaison de chaînes :
+            // s'il n'a pas bougé, aucune sélection n'a été copiée.
+            guard pasteboard.changeCount != changeCountBefore,
+                  let text = pasteboard.string(forType: .string),
+                  !text.isEmpty else {
+                // Échec : ne rien laisser derrière (le ⌘C a pu copier du non-texte).
+                self?.restorePasteboard(snapshot)
+                completion(nil)
+                return
+            }
+            completion(SelectionCapture(text: text, snapshot: snapshot))
+        }
+    }
+
+    // MARK: - Presse-papier
+
+    /// Instantané de tous les items/types du presse-papier, pour une restauration
+    /// fidèle (texte, RTF, images, URLs…) et pas seulement la chaîne.
+    private func snapshotPasteboard() -> [NSPasteboardItem] {
+        var snapshot: [NSPasteboardItem] = []
+        for item in NSPasteboard.general.pasteboardItems ?? [] {
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    copy.setData(data, forType: type)
+                }
+            }
+            snapshot.append(copy)
+        }
+        return snapshot
+    }
+
+    private func restorePasteboard(_ items: [NSPasteboardItem]) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if !items.isEmpty {
+            pasteboard.writeObjects(items)
+        }
+    }
+
+    private func writeToPasteboard(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
+    }
+
+    // MARK: - Crypto (sans effet de bord — aucun log du contenu)
+
+    private enum CryptoOutcome {
+        case success(String)
+        case failure(String)
+    }
+
+    private func performEncrypt(_ text: String, passphrase: String) -> CryptoOutcome {
+        guard let result = swift_encrypt_data(text, passphrase) else {
+            return .failure("Le chiffrement a échoué.")
+        }
+        defer { free_crypto_result(result) }
+        let cryptoResult = result.pointee
+        guard cryptoResult.success == 1 else {
+            return .failure(String(cString: cryptoResult.error_message))
+        }
+        guard let base64 = swift_base64_encode(cryptoResult.data, Int32(cryptoResult.length)) else {
+            return .failure("Encodage base64 impossible.")
+        }
+        defer { free(base64) }
+        return .success(String(cString: base64))
+    }
+
+    private func performDecrypt(_ text: String, passphrase: String) -> CryptoOutcome {
+        guard let decodeResult = swift_base64_decode(text) else {
+            return .failure("Format base64 invalide.")
+        }
+        defer { free_crypto_result(decodeResult) }
+        let decoded = decodeResult.pointee
+        guard decoded.success == 1 else {
+            return .failure("Format base64 invalide.")
+        }
+        guard let decryptResult = swift_decrypt_data(decoded.data, Int32(decoded.length), passphrase) else {
+            return .failure("Déchiffrement impossible.")
+        }
+        defer { free_crypto_result(decryptResult) }
+        let decrypted = decryptResult.pointee
+        guard decrypted.success == 1 else {
+            return .failure(String(cString: decrypted.error_message))
+        }
+        // Le texte en clair n'est jamais loggé ni persisté.
+        return .success(String(cString: decrypted.data))
     }
     
     // MARK: - Utilities
