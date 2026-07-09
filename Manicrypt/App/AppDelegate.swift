@@ -157,10 +157,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkeyItem = NSMenuItem(title: "Raccourcis globaux", action: nil, keyEquivalent: "")
         let hotkeySubmenu = NSMenu()
         
-        let encryptItem = NSMenuItem(title: "Chiffrer la sélection → presse-papier (⌃⇧E)", action: #selector(encryptSelection), keyEquivalent: "")
+        let encryptItem = NSMenuItem(title: "Chiffrer la sélection (⌃⇧E)", action: #selector(encryptSelection), keyEquivalent: "")
         hotkeySubmenu.addItem(encryptItem)
 
-        let decryptItem = NSMenuItem(title: "Déchiffrer la sélection → aperçu (⌃⇧D)", action: #selector(decryptSelection), keyEquivalent: "")
+        let decryptItem = NSMenuItem(title: "Déchiffrer la sélection (⌃⇧D)", action: #selector(decryptSelection), keyEquivalent: "")
         hotkeySubmenu.addItem(decryptItem)
         
         hotkeySubmenu.addItem(NSMenuItem.separator())
@@ -562,8 +562,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         \(hotkeyStatus)
         
         Raccourcis disponibles :
-        ⌃⇧E - Chiffrer la sélection (copiée au presse-papier)
-        ⌃⇧D - Déchiffrer la sélection (aperçu, sans copie)
+        ⌃⇧E - Chiffrer la sélection
+        ⌃⇧D - Déchiffrer la sélection
+        (dans un champ éditable : remplacement sur place ;
+        sinon presse-papier + témoin pour ⌃⇧E, aperçu pour ⌃⇧D)
         
         Sécurité :
         • Stockage Keychain avec biométrie
