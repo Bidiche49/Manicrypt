@@ -2,55 +2,68 @@
 //  OverlayView.swift
 //  Manicrypt
 //
-//  Vue de l'overlay flottant de chiffrement/déchiffrement (FEAT-001).
-//  Affiche le résultat d'une opération ⌃⇧E / ⌃⇧D sans jamais modifier
-//  la sélection source. Aucune écriture disque, aucun log du texte en clair.
+//  Vues flottantes de FEAT-001 (v3) :
+//   - overlay de déchiffrement (zone non éditable) : clair, bouton Copier,
+//     champ « autre passphrase » one-shot, états d'erreur ;
+//   - HUD éphémère « Chiffré copié ✓ » (⌃⇧E en zone non éditable).
+//
+//  Le texte affiché (clair) ne vit qu'en mémoire, le temps de l'affichage.
+//  Aucune écriture disque, aucun log. La passphrase alternative saisie ici
+//  n'est ni persistée ni loggée.
 //
 
 import SwiftUI
 
-// MARK: - État affiché par l'overlay
+// MARK: - État affiché
 
-/// Contenu courant de l'overlay. Le texte (chiffré ou clair) vit uniquement
-/// en mémoire, le temps de l'affichage — jamais persisté ni loggé.
 enum OverlayState: Equatable {
-    /// ⌃⇧E : chiffré, déjà copié dans le presse-papier.
-    case encrypted(String)
-    /// ⌃⇧D : clair, affiché seulement (copie manuelle via le bouton).
+    /// HUD éphémère : le chiffré vient d'être copié dans le presse-papier.
+    case encryptedHUD
+    /// Overlay : texte clair déchiffré (copie manuelle seulement).
     case decrypted(String)
     /// Sélection vide ou capture ⌘C échouée.
     case emptySelection
-    /// Sélection non déchiffrable (base64 ou GCM invalides).
+    /// Sélection non déchiffrable (base64 / GCM invalides ou mauvaise passphrase).
     case notManicryptMessage
-    /// Aucune passphrase configurée dans le Keychain.
+    /// Aucune passphrase de session configurée.
     case passphraseNotConfigured
-    /// Erreur inattendue (message déjà « safe », sans contenu sensible).
+    /// Erreur inattendue (message sans contenu sensible).
     case failure(String)
 }
 
 // MARK: - View model
 
-/// Pilote l'overlay. Créé et détenu par `OverlayPanelController`.
-/// Les callbacks (fermer, copier, préférences) sont câblés par le controller
-/// pour garder toute logique presse-papier / navigation hors de la vue.
+/// Pilote les vues. Créé et détenu par `OverlayPanelController`, qui câble les
+/// callbacks (fermer, copier, préférences, retenter avec une autre passphrase).
 final class OverlayViewModel: ObservableObject {
     @Published private(set) var state: OverlayState = .emptySelection
-    /// Témoin visuel « Copié ✓ » (vrai d'emblée en mode chiffré).
     @Published private(set) var didCopy: Bool = false
+
+    /// Saisie one-shot d'une passphrase alternative (jamais persistée ni loggée).
+    @Published var altPassphrase: String = ""
+    /// Vrai si le dernier essai avec la passphrase alternative a échoué.
+    @Published private(set) var altFailed: Bool = false
 
     var closeHandler: () -> Void = {}
     var copyHandler: () -> Void = {}
     var openPreferencesHandler: () -> Void = {}
+    /// Transmet la passphrase alternative au controller, qui retente le
+    /// déchiffrement et rappelle `showRetrySuccess` / `markAltFailed`.
+    var altSubmitHandler: (String) -> Void = { _ in }
 
     func present(_ state: OverlayState, alreadyCopied: Bool) {
         self.state = state
         self.didCopy = alreadyCopied
+        self.altPassphrase = ""
+        self.altFailed = false
     }
 
-    /// Remet l'overlay dans un état neutre — libère aussi le texte affiché.
+    /// Remet à zéro — libère aussi le texte affiché et la saisie alternative.
     func reset() {
         state = .emptySelection
         didCopy = false
+        altPassphrase = ""
+        altFailed = false
     }
 
     func close() { closeHandler() }
@@ -64,16 +77,62 @@ final class OverlayViewModel: ObservableObject {
         openPreferencesHandler()
         closeHandler()
     }
+
+    func submitAltPassphrase() {
+        let pass = altPassphrase
+        guard !pass.isEmpty else { return }
+        altSubmitHandler(pass)
+    }
+
+    // Appelés par le controller après un essai avec la passphrase alternative.
+    func showRetrySuccess(_ plaintext: String) {
+        state = .decrypted(plaintext)
+        didCopy = false
+        altPassphrase = ""
+        altFailed = false
+    }
+
+    func markAltFailed() {
+        altFailed = true
+    }
 }
 
-// MARK: - Vue
+// MARK: - Overlay (déchiffrement + erreurs)
 
 struct OverlayView: View {
     @ObservedObject var viewModel: OverlayViewModel
+    @State private var altExpanded = false
 
     private let cardWidth: CGFloat = 360
 
     var body: some View {
+        Group {
+            if case .encryptedHUD = viewModel.state {
+                hud
+            } else {
+                card
+            }
+        }
+        .padding(8) // marge pour que l'ombre ne soit pas rognée par le panel
+    }
+
+    // MARK: HUD éphémère
+
+    private var hud: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock.fill").foregroundStyle(.green)
+            Text("Chiffré copié ✓").font(.headline)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+    }
+
+    // MARK: Carte (overlay complet)
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             content
@@ -86,18 +145,14 @@ struct OverlayView: View {
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-        .padding(8) // marge pour que l'ombre ne soit pas rognée par le panel
     }
-
-    // MARK: En-tête
 
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: accent.icon)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(accent.color)
-            Text(accent.title)
-                .font(.headline)
+            Text(accent.title).font(.headline)
             Spacer()
             Button(action: viewModel.close) {
                 Image(systemName: "xmark.circle.fill")
@@ -109,21 +164,10 @@ struct OverlayView: View {
         }
     }
 
-    // MARK: Corps
-
     @ViewBuilder private var content: some View {
         switch viewModel.state {
-        case .encrypted(let cipher):
-            resultBlock(text: cipher, monospaced: true, tint: .green)
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Copié ✓ — collez avec ⌘V où vous voulez.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
         case .decrypted(let plain):
-            resultBlock(text: plain, monospaced: false, tint: .blue)
+            resultBlock(text: plain)
             HStack {
                 Button(action: viewModel.copyPlaintext) {
                     Label(viewModel.didCopy ? "Copié ✓" : "Copier",
@@ -134,18 +178,17 @@ struct OverlayView: View {
                 .tint(viewModel.didCopy ? .green : .accentColor)
                 Spacer()
             }
-
-        case .emptySelection:
-            messageBlock(
-                title: "Aucun texte capturé",
-                detail: "Sélectionnez du texte, puis relancez le raccourci (⌃⇧E pour chiffrer, ⌃⇧D pour déchiffrer)."
-            )
+            DisclosureGroup("Utiliser une autre passphrase", isExpanded: $altExpanded) {
+                alternatePassphraseField
+            }
+            .font(.callout)
 
         case .notManicryptMessage:
             messageBlock(
                 title: "Ce n'est pas un message Manicrypt",
-                detail: "La sélection n'a pas pu être déchiffrée. Vérifiez que c'est bien un texte chiffré avec la même passphrase."
+                detail: "La sélection n'a pas pu être déchiffrée avec la passphrase de session. Essayez une autre passphrase :"
             )
+            alternatePassphraseField
 
         case .passphraseNotConfigured:
             messageBlock(
@@ -155,23 +198,55 @@ struct OverlayView: View {
             Button("Ouvrir les Préférences", action: viewModel.openPreferences)
                 .buttonStyle(.bordered)
 
+        case .emptySelection:
+            messageBlock(
+                title: "Aucun texte capturé",
+                detail: "Sélectionnez du texte, puis relancez le raccourci (⌃⇧E pour chiffrer, ⌃⇧D pour déchiffrer)."
+            )
+
         case .failure(let message):
             messageBlock(title: "Opération impossible", detail: message)
+
+        case .encryptedHUD:
+            EmptyView() // rendu par `hud`, jamais ici
         }
+    }
+
+    // MARK: Passphrase alternative
+
+    private var alternatePassphraseField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                SecureField("Autre passphrase", text: $viewModel.altPassphrase)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(viewModel.submitAltPassphrase)
+                Button("Déchiffrer", action: viewModel.submitAltPassphrase)
+                    .buttonStyle(.bordered)
+                    .disabled(viewModel.altPassphrase.isEmpty)
+            }
+            if viewModel.altFailed {
+                Text("Échec — cette passphrase ne déchiffre pas non plus la sélection.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            Text("Saisie ponctuelle : jamais enregistrée ni journalisée.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
     }
 
     // MARK: Fragments
 
-    private func resultBlock(text: String, monospaced: Bool, tint: Color) -> some View {
+    private func resultBlock(text: String) -> some View {
         ScrollView {
             Text(text)
-                .font(.system(.body, design: monospaced ? .monospaced : .default))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
         }
         .frame(maxHeight: 220)
-        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func messageBlock(title: String, detail: String) -> some View {
@@ -189,7 +264,7 @@ struct OverlayView: View {
         .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    // MARK: Accent (icône / titre / couleur d'en-tête selon l'état)
+    // MARK: Accent d'en-tête
 
     private struct Accent {
         let icon: String
@@ -199,11 +274,10 @@ struct OverlayView: View {
 
     private var accent: Accent {
         switch viewModel.state {
-        case .encrypted:
-            return Accent(icon: "lock.fill", title: "Chiffré", color: .green)
         case .decrypted:
             return Accent(icon: "lock.open.fill", title: "Déchiffré", color: .blue)
-        case .emptySelection, .notManicryptMessage, .passphraseNotConfigured, .failure:
+        case .encryptedHUD, .emptySelection, .notManicryptMessage,
+             .passphraseNotConfigured, .failure:
             return Accent(icon: "exclamationmark.triangle.fill", title: "Manicrypt", color: .orange)
         }
     }

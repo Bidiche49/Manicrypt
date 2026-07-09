@@ -297,11 +297,16 @@ class GlobalHotkeyManager: ObservableObject {
         }
     }
     
-    // MARK: - Text Processing (overlay)
+    // MARK: - Text Processing (contextuel v3)
 
     /// Point d'entrée des deux raccourcis. Prépare la session (Touch ID si besoin),
-    /// capture la sélection via ⌘C, chiffre/déchiffre, puis présente l'overlay.
-    /// Ne modifie jamais le contenu source (plus aucun collage ⌘V).
+    /// détecte le contexte de la sélection (champ éditable ou non), capture via ⌘C,
+    /// chiffre/déchiffre, puis applique le comportement contextuel :
+    ///   - champ éditable      → remplacement in-place (⌘V par-dessus la sélection) ;
+    ///   - zone non éditable   → ⌃⇧E : chiffré au presse-papier + HUD ;
+    ///                           ⌃⇧D : overlay flottant.
+    /// La sélection source n'est modifiée QUE dans le cas in-place (contexte prouvé
+    /// éditable) ; jamais de ⌘V à l'aveugle.
     func processSelectedText(encrypt: Bool) {
         print("🔄 Traitement de la sélection — chiffrement: \(encrypt)")
 
@@ -312,17 +317,19 @@ class GlobalHotkeyManager: ObservableObject {
             return
         }
 
-        // Court délai pour laisser la sélection se stabiliser, puis capturer.
+        // Court délai pour laisser la sélection se stabiliser, puis détecter le
+        // contexte (tant que le focus est dans l'app source) et capturer.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.captureSelection { capture in
-                self?.handleCapture(capture, encrypt: encrypt)
+            guard let self = self else { return }
+            let context = FocusContextDetector.shared.currentContext()
+            self.captureSelection { capture in
+                self.handleCapture(capture, encrypt: encrypt, context: context)
             }
         }
     }
 
-    /// Aiguille le texte capturé vers le chiffrement ou le déchiffrement et gère
-    /// les règles strictes de presse-papier propres à chaque direction.
-    private func handleCapture(_ capture: SelectionCapture?, encrypt: Bool) {
+    /// Applique le comportement contextuel et les règles strictes de presse-papier.
+    private func handleCapture(_ capture: SelectionCapture?, encrypt: Bool, context: FocusContext) {
         guard let passphrase = sessionPassphrase else {
             OverlayPanelController.shared.showError(.failure("Session expirée."))
             return
@@ -333,27 +340,63 @@ class GlobalHotkeyManager: ObservableObject {
             return
         }
 
-        if encrypt {
+        switch (encrypt, context) {
+        case (true, .editable):
+            // ⌃⇧E in-place : chiffre et colle par-dessus la sélection.
             switch performEncrypt(capture.text, passphrase: passphrase) {
             case .success(let cipher):
-                // ⌃⇧E : le presse-papier final contient le chiffré (c'est la feature).
-                writeToPasteboard(cipher)
-                OverlayPanelController.shared.showEncrypted(cipher)
+                pasteInPlace(cipher, restoringTo: capture.snapshot)
             case .failure(let message):
-                // Ne pas laisser le clair capturé dans le presse-papier.
                 restorePasteboard(capture.snapshot)
                 OverlayPanelController.shared.showError(.failure(message))
             }
-        } else {
-            // ⌃⇧D : restaurer immédiatement le presse-papier — le chiffré capturé
-            // n'y persiste pas et le clair n'y transite jamais automatiquement.
+
+        case (true, .nonEditable):
+            // ⌃⇧E non éditable : le presse-papier reçoit le chiffré (c'est la
+            // feature), témoin HUD éphémère.
+            switch performEncrypt(capture.text, passphrase: passphrase) {
+            case .success(let cipher):
+                writeToPasteboard(cipher)
+                OverlayPanelController.shared.showEncryptedHUD()
+            case .failure(let message):
+                restorePasteboard(capture.snapshot)
+                OverlayPanelController.shared.showError(.failure(message))
+            }
+
+        case (false, .editable):
+            // ⌃⇧D in-place : déchiffre et colle par-dessus la sélection.
+            switch performDecrypt(capture.text, passphrase: passphrase) {
+            case .success(let plaintext):
+                pasteInPlace(plaintext, restoringTo: capture.snapshot)
+            case .failure:
+                // Rien à coller : restaurer, puis proposer l'overlay + autre passphrase.
+                restorePasteboard(capture.snapshot)
+                OverlayPanelController.shared.showDecryptFailure(retry: makeRetry(cipher: capture.text))
+            }
+
+        case (false, .nonEditable):
+            // ⌃⇧D overlay : restaurer le presse-papier (le clair n'y transite
+            // jamais), puis afficher le clair — ou l'échec + autre passphrase.
             restorePasteboard(capture.snapshot)
             switch performDecrypt(capture.text, passphrase: passphrase) {
             case .success(let plaintext):
-                OverlayPanelController.shared.showDecrypted(plaintext)
+                OverlayPanelController.shared.showDecryptSuccess(plaintext, retry: makeRetry(cipher: capture.text))
             case .failure:
-                OverlayPanelController.shared.showError(.notManicryptMessage)
+                OverlayPanelController.shared.showDecryptFailure(retry: makeRetry(cipher: capture.text))
             }
+        }
+    }
+
+    /// Fabrique la relance de déchiffrement pour une passphrase alternative saisie
+    /// dans l'overlay. Le chiffré est capté par la closure ; la passphrase saisie
+    /// n'est ni conservée ni loggée.
+    private func makeRetry(cipher: String) -> (String) -> String? {
+        return { [weak self] passphrase in
+            guard let self = self else { return nil }
+            if case .success(let plaintext) = self.performDecrypt(cipher, passphrase: passphrase) {
+                return plaintext
+            }
+            return nil
         }
     }
 
@@ -425,6 +468,22 @@ class GlobalHotkeyManager: ObservableObject {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
+    }
+
+    /// Remplace la sélection courante par `text` via un ⌘V simulé, puis restaure
+    /// le presse-papier à l'identique. Réservé au contexte prouvé ÉDITABLE — c'est
+    /// le seul chemin qui modifie le contenu source (jamais de ⌘V à l'aveugle).
+    /// Le texte collé ne fait que transiter par le presse-papier, restauré ensuite.
+    private func pasteInPlace(_ text: String, restoringTo snapshot: [NSPasteboardItem]) {
+        writeToPasteboard(text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self = self else { return }
+            self.simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+            // Laisser le collage aboutir avant de restaurer le presse-papier.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.restorePasteboard(snapshot)
+            }
+        }
     }
 
     // MARK: - Crypto (sans effet de bord — aucun log du contenu)

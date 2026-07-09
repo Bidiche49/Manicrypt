@@ -2,15 +2,16 @@
 //  OverlayPanelController.swift
 //  Manicrypt
 //
-//  Panneau flottant non-activant qui affiche le résultat des raccourcis
-//  ⌃⇧E / ⌃⇧D (FEAT-001).
+//  Panneau flottant non-activant de FEAT-001 (v3). Deux modes de présentation :
+//   - HUD éphémère « Chiffré copié ✓ » (⌃⇧E en zone non éditable), auto-fermé ;
+//   - overlay de déchiffrement (⌃⇧D en zone non éditable), avec relance possible
+//     via une passphrase alternative.
 //
 //  Contraintes clés :
 //  - Le focus reste dans l'app d'origine : le panel est `.nonactivatingPanel`
 //    et ne devient jamais key. Échap et le clic extérieur sont détectés via des
 //    moniteurs d'événements *globaux* (l'app active reste celle de l'utilisateur).
-//  - Le texte affiché (chiffré ou clair) ne vit qu'en mémoire, le temps de
-//    l'affichage. Le clair déchiffré n'est copié que sur action explicite.
+//  - Le clair déchiffré n'est copié que sur action explicite de l'utilisateur.
 //
 
 import Cocoa
@@ -22,16 +23,21 @@ final class OverlayPanelController {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
 
-    /// Clair courant (mode déchiffré), conservé hors du view model pour que la
-    /// copie manuelle reste pilotée ici. Effacé dès la fermeture.
+    /// Clair courant (mode déchiffré), conservé hors du view model pour piloter la
+    /// copie manuelle. Effacé à la fermeture.
     private var pendingPlaintext: String?
+    /// Relance de déchiffrement avec une passphrase alternative (renvoie le clair
+    /// ou `nil`). Câblée par `GlobalHotkeyManager` au moment de présenter ⌃⇧D.
+    private var currentRetry: ((String) -> String?)?
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var hudTimer: Timer?
 
     private init() {
         viewModel.closeHandler = { [weak self] in self?.close() }
         viewModel.copyHandler = { [weak self] in self?.copyPendingPlaintext() }
+        viewModel.altSubmitHandler = { [weak self] pass in self?.attemptAlternate(pass) }
         viewModel.openPreferencesHandler = {
             NotificationCenter.default.post(name: NSNotification.Name("OpenSettings"), object: nil)
         }
@@ -39,46 +45,72 @@ final class OverlayPanelController {
 
     // MARK: - API de présentation
 
-    /// ⌃⇧E : chiffré déjà déposé dans le presse-papier par l'appelant.
-    func showEncrypted(_ cipher: String) {
+    /// ⌃⇧E en zone non éditable : chiffré déjà déposé au presse-papier, HUD bref.
+    func showEncryptedHUD() {
         pendingPlaintext = nil
-        present(state: .encrypted(cipher), alreadyCopied: true)
+        currentRetry = nil
+        present(state: .encryptedHUD, alreadyCopied: true, installMonitors: false, autoDismiss: 1.5)
     }
 
-    /// ⌃⇧D : clair affiché seulement, jamais copié automatiquement.
-    func showDecrypted(_ plaintext: String) {
+    /// ⌃⇧D : clair affiché seulement. `retry` retente avec une autre passphrase.
+    func showDecryptSuccess(_ plaintext: String, retry: @escaping (String) -> String?) {
         pendingPlaintext = plaintext
+        currentRetry = retry
         present(state: .decrypted(plaintext), alreadyCopied: false)
     }
 
-    /// États d'erreur (sélection vide, non déchiffrable, passphrase manquante…).
+    /// ⌃⇧D dont le déchiffrement a échoué avec la passphrase de session : erreur +
+    /// proposition de saisir une autre passphrase.
+    func showDecryptFailure(retry: @escaping (String) -> String?) {
+        pendingPlaintext = nil
+        currentRetry = retry
+        present(state: .notManicryptMessage)
+    }
+
+    /// Erreurs sans relance possible (sélection vide, passphrase absente, échec).
     func showError(_ state: OverlayState) {
         pendingPlaintext = nil
-        present(state: state, alreadyCopied: false)
+        currentRetry = nil
+        present(state: state)
     }
 
     // MARK: - Cycle de vie
 
-    private func present(state: OverlayState, alreadyCopied: Bool) {
+    private func present(state: OverlayState,
+                         alreadyCopied: Bool = false,
+                         installMonitors: Bool = true,
+                         autoDismiss: TimeInterval? = nil) {
         assert(Thread.isMainThread, "L'overlay doit être présenté sur le main thread")
         ensurePanel()
-        viewModel.present(state, alreadyCopied: alreadyCopied)
-        startMonitors()
+        hudTimer?.invalidate()
+        hudTimer = nil
 
-        // Laisser SwiftUI calculer sa taille, puis dimensionner/positionner
-        // avant d'afficher (évite un flash au coin de l'écran).
+        viewModel.present(state, alreadyCopied: alreadyCopied)
+        if installMonitors { startMonitors() } else { stopMonitors() }
+
+        // Laisser SwiftUI calculer sa taille, puis dimensionner/positionner avant
+        // d'afficher (évite un flash au coin de l'écran).
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel else { return }
             self.resizePanelToFit()
             self.positionPanelNearCursor()
             panel.orderFrontRegardless()
+
+            if let autoDismiss {
+                self.hudTimer = Timer.scheduledTimer(withTimeInterval: autoDismiss, repeats: false) { [weak self] _ in
+                    self?.close()
+                }
+            }
         }
     }
 
     func close() {
+        hudTimer?.invalidate()
+        hudTimer = nil
         stopMonitors()
         panel?.orderOut(nil)
         pendingPlaintext = nil
+        currentRetry = nil
         viewModel.reset() // libère le texte affiché
     }
 
@@ -88,7 +120,7 @@ final class OverlayPanelController {
         let hosting = NSHostingView(rootView: OverlayView(viewModel: viewModel))
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 376, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: 376, height: 120),
             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -103,12 +135,12 @@ final class OverlayPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
-        // Ne prend le statut key que si un contrôle l'exige : on ne vole donc
-        // pas le focus de l'app d'origine.
+        // Ne prend le statut key que si un contrôle l'exige (SecureField) : on ne
+        // vole donc pas le focus applicatif pour les cas courants.
         panel.becomesKeyOnlyIfNeeded = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false // l'ombre est portée par la carte SwiftUI
+        panel.hasShadow = false // l'ombre est portée par la carte/HUD SwiftUI
         panel.isReleasedWhenClosed = false
         panel.contentView = hosting
 
@@ -122,12 +154,8 @@ final class OverlayPanelController {
         hosting.layoutSubtreeIfNeeded()
         var size = hosting.fittingSize
         if size.width < 1 { size.width = 376 }
-        size.height = min(max(size.height, 96), 480)
-
-        // Conserver le coin haut-gauche pour éviter un « saut » au resize.
-        let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        size.height = min(max(size.height, 60), 520)
         panel.setContentSize(size)
-        panel.setFrameTopLeftPoint(topLeft)
     }
 
     private func positionPanelNearCursor() {
@@ -152,15 +180,26 @@ final class OverlayPanelController {
         panel.setFrameOrigin(origin)
     }
 
-    // MARK: - Copie manuelle du clair
+    // MARK: - Copie manuelle / passphrase alternative
 
     private func copyPendingPlaintext() {
         guard let plaintext = pendingPlaintext else { return }
-        // Copie initiée par l'utilisateur (bouton « Copier ») — la seule voie
-        // par laquelle le clair peut atteindre le presse-papier.
+        // Copie initiée par l'utilisateur (bouton « Copier ») — seule voie par
+        // laquelle le clair peut atteindre le presse-papier.
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(plaintext, forType: .string)
+    }
+
+    private func attemptAlternate(_ passphrase: String) {
+        guard let retry = currentRetry else { return }
+        if let plaintext = retry(passphrase) {
+            pendingPlaintext = plaintext
+            viewModel.showRetrySuccess(plaintext)
+            DispatchQueue.main.async { [weak self] in self?.resizePanelToFit() }
+        } else {
+            viewModel.markAltFailed()
+        }
     }
 
     // MARK: - Moniteurs Échap / clic extérieur
@@ -175,7 +214,7 @@ final class OverlayPanelController {
             self?.handleMonitorEvent(event)
         }
 
-        // Local : au cas où le panel aurait le focus (ex. déclenché depuis le menu).
+        // Local : au cas où le panel aurait le focus (ex. saisie passphrase).
         localMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
