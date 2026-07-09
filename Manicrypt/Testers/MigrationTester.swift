@@ -181,7 +181,7 @@ class MigrationTester: TestRunner {
     /// Liste toutes les clés UserDefaults pour debug
     func listAllUserDefaults() {
         print("📋 Contenu actuel des UserDefaults:")
-        let domain = Bundle.main.bundleIdentifier ?? "com.nztd.Manicrypt"
+        let domain = Bundle.main.bundleIdentifier ?? "com.manicrypt.app"
         let defaults = UserDefaults.standard.persistentDomain(forName: domain) ?? [:]
         
         for (key, value) in defaults {

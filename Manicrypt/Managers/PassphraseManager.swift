@@ -25,7 +25,7 @@
 //    
 //    // Keychain configuration
 //    private enum KeychainKeys {
-//        static let service = "com.nztd.Manicrypt"
+//        static let service = "com.manicrypt.app"
 //        static let generatedPassphraseKey = "generatedPassphrase"
 //    }
 //    
@@ -384,7 +384,7 @@ class PassphraseManager: ObservableObject {
     
     // Keychain configuration
     private enum KeychainKeys {
-        static let service = "com.nztd.Manicrypt"
+        static let service = "com.manicrypt.app"
         static let generatedPassphraseKey = "generatedPassphrase"
     }
     

@@ -218,7 +218,7 @@ class PermissionTester: TestRunner {
     // MARK: - Méthodes utilitaires
     
     private func getAllManicryptPreferences() -> [String: Any] {
-        let domain = Bundle.main.bundleIdentifier ?? "com.nztd.Manicrypt"
+        let domain = Bundle.main.bundleIdentifier ?? "com.manicrypt.app"
         let defaults = UserDefaults.standard.persistentDomain(forName: domain) ?? [:]
         
         return defaults.filter { key, _ in

@@ -24,7 +24,7 @@ class SecureKeychainManager {
     }
     
     private enum KeychainKeys {
-        static let service = "com.nztd.Manicrypt"
+        static let service = "com.manicrypt.app"
         static let globalPassphraseKey = "globalPassphrase"
         static let passphraseHashKey = "passphraseHash"
     }

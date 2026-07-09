@@ -55,7 +55,7 @@ class KeychainTester: TestRunner {
         // Créer une entrée simple
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.nztd.Manicrypt.test",
+            kSecAttrService as String: "com.manicrypt.app.test",
             kSecAttrAccount as String: testKey,
             kSecValueData as String: testValue.data(using: .utf8)!
         ]
@@ -72,7 +72,7 @@ class KeychainTester: TestRunner {
         // Lire
         let readQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.nztd.Manicrypt.test",
+            kSecAttrService as String: "com.manicrypt.app.test",
             kSecAttrAccount as String: testKey,
             kSecReturnData as String: true
         ]
@@ -136,7 +136,7 @@ class KeychainTester: TestRunner {
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.nztd.Manicrypt.test.biometry",
+            kSecAttrService as String: "com.manicrypt.app.test.biometry",
             kSecAttrAccount as String: testKey,
             kSecValueData as String: testValue.data(using: .utf8)!,
             kSecAttrAccessControl as String: accessControl
@@ -165,7 +165,7 @@ class KeychainTester: TestRunner {
         // Test d'accès à un item inexistant
         let nonExistentQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.nztd.Manicrypt.nonexistent",
+            kSecAttrService as String: "com.manicrypt.app.nonexistent",
             kSecAttrAccount as String: "nonexistent",
             kSecReturnData as String: true
         ]
@@ -230,12 +230,12 @@ class KeychainTester: TestRunner {
     func debugKeychainInfo() {
         print("\n📊 Informations de debug Keychain:")
         print("   Bundle ID: \(Bundle.main.bundleIdentifier ?? "N/A")")
-        print("   Keychain Service: com.nztd.Manicrypt")
+        print("   Keychain Service: com.manicrypt.app")
         
         // Test simple de disponibilité du Keychain
         let testQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.nztd.Manicrypt.debug",
+            kSecAttrService as String: "com.manicrypt.app.debug",
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll
         ]

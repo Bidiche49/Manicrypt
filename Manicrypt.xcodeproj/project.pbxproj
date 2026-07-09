@@ -261,7 +261,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Manicrypt/Preview Content\"";
-				DEVELOPMENT_TEAM = DG6YNZ9562;
+				DEVELOPMENT_TEAM = 3SL9M22QDY;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -281,7 +281,7 @@
 					"-L/opt/homebrew/opt/openssl@3/lib",
 					"/opt/homebrew/opt/openssl@3/lib/libcrypto.a",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nztd.Manicrypt;
+				PRODUCT_BUNDLE_IDENTIFIER = com.manicrypt.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = "/opt/homebrew/opt/openssl@3/include";
@@ -303,7 +303,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Manicrypt/Preview Content\"";
-				DEVELOPMENT_TEAM = DG6YNZ9562;
+				DEVELOPMENT_TEAM = 3SL9M22QDY;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -324,7 +324,7 @@
 					"-L/opt/homebrew/opt/openssl@3/lib",
 					"/opt/homebrew/opt/openssl@3/lib/libcrypto.a",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nztd.Manicrypt;
+				PRODUCT_BUNDLE_IDENTIFIER = com.manicrypt.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = "/opt/homebrew/opt/openssl@3/include";

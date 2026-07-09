@@ -24,7 +24,7 @@ class ConfigurationManager {
     
     // MARK: - Keychain Keys
     private enum KeychainKeys {
-        static let service = "com.nztd.Manicrypt"
+        static let service = "com.manicrypt.app"
         static let globalPassphrase = "globalPassphrase"
     }
     
