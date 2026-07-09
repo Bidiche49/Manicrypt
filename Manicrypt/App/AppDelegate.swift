@@ -157,10 +157,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkeyItem = NSMenuItem(title: "Raccourcis globaux", action: nil, keyEquivalent: "")
         let hotkeySubmenu = NSMenu()
         
-        let encryptItem = NSMenuItem(title: "Chiffrer sélection (⌃⇧E)", action: #selector(encryptSelection), keyEquivalent: "")
+        let encryptItem = NSMenuItem(title: "Chiffrer la sélection → presse-papier (⌃⇧E)", action: #selector(encryptSelection), keyEquivalent: "")
         hotkeySubmenu.addItem(encryptItem)
-        
-        let decryptItem = NSMenuItem(title: "Déchiffrer sélection (⌃⇧D)", action: #selector(decryptSelection), keyEquivalent: "")
+
+        let decryptItem = NSMenuItem(title: "Déchiffrer la sélection → aperçu (⌃⇧D)", action: #selector(decryptSelection), keyEquivalent: "")
         hotkeySubmenu.addItem(decryptItem)
         
         hotkeySubmenu.addItem(NSMenuItem.separator())
@@ -562,8 +562,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         \(hotkeyStatus)
         
         Raccourcis disponibles :
-        ⌃⇧E - Chiffrer la sélection
-        ⌃⇧D - Déchiffrer la sélection
+        ⌃⇧E - Chiffrer la sélection (copiée au presse-papier)
+        ⌃⇧D - Déchiffrer la sélection (aperçu, sans copie)
         
         Sécurité :
         • Stockage Keychain avec biométrie
@@ -653,9 +653,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                 defer { free_crypto_result(decryptResult) }
                                 let decryptData = decryptResult.pointee
                                 if decryptData.success == 1 {
-                                    let decryptedText = String(cString: decryptData.data)
-                                    print("🔓 Déchiffrement: '\(decryptedText)'")
-                                    print("🎉 Manicrypt crypto backend opérationnel!")
+                                    // Ne jamais logger le contenu déchiffré, même en self-test.
+                                    print("🎉 Manicrypt crypto backend opérationnel (round-trip OK)")
                                 } else {
                                     let errorMsg = String(cString: decryptData.error_message)
                                     print("❌ Erreur déchiffrement: \(errorMsg)")
