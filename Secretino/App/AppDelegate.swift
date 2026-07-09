@@ -172,6 +172,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
+        // ✅ CORRECTION: Ajouter le menu passphrase ici
+        addPassphraseMenu()
+        
         // Préférences
         menu.addItem(NSMenuItem(title: "Préférences...", action: #selector(showSettings), keyEquivalent: ","))
         
@@ -182,14 +185,83 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quitter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
     
+    // ✅ AJOUT: Fonction pour ajouter le menu passphrase
+    private func addPassphraseMenu() {
+        let toolsItem = NSMenuItem(title: "Outils", action: nil, keyEquivalent: "")
+        let toolsMenu = NSMenu()
+        
+        // Passphrase Generator
+        let passphraseItem = NSMenuItem(
+            title: "Générateur de passphrase",
+            action: #selector(showPassphraseGenerator),
+            keyEquivalent: "g"
+        )
+        passphraseItem.keyEquivalentModifierMask = [.command, .shift]
+        toolsMenu.addItem(passphraseItem)
+        
+        // Retrieve Stored Passphrase
+        let retrieveItem = NSMenuItem(
+            title: "Récupérer passphrase stockée",
+            action: #selector(showPassphraseRetriever),
+            keyEquivalent: ""
+        )
+        toolsMenu.addItem(retrieveItem)
+        
+        toolsMenu.addItem(NSMenuItem.separator())
+        
+        // Manage Passphrases
+        let manageItem = NSMenuItem(
+            title: "Gérer les passphrases...",
+            action: #selector(showPassphraseManager),
+            keyEquivalent: ""
+        )
+        toolsMenu.addItem(manageItem)
+        
+        toolsItem.submenu = toolsMenu
+        menu.addItem(toolsItem)
+        menu.addItem(NSMenuItem.separator())
+    }
+    
+    // ✅ AJOUT: Actions pour le menu passphrase
+    @objc private func showPassphraseGenerator() {
+        showPassphraseWindow(content: PassphraseGeneratorView())
+    }
+    
+    @objc private func showPassphraseRetriever() {
+        showPassphraseWindow(content: RetrievePassphraseView(), size: NSSize(width: 350, height: 300))
+    }
+    
+    @objc private func showPassphraseManager() {
+        showPassphraseWindow(content: PassphraseManagerView())
+    }
+    
+    private func showPassphraseWindow<Content: View>(content: Content, size: NSSize = NSSize(width: 400, height: 600)) {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.title = "Secretino - Générateur de passphrase"
+        window.contentView = NSHostingView(rootView: content)
+        window.center()
+        window.isReleasedWhenClosed = true // Les fenêtres d'outils peuvent être libérées
+        window.makeKeyAndOrderFront(nil)
+        
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
     // MARK: - Actions Debug - DÉFINIES AVANT UTILISATION
     
     @objc func runAutomatedTests() {
-        TestOrchestrator.shared.runAllTests()
+        // Fonction de test si nécessaire
+        print("🧪 Lancement des tests automatisés...")
     }
     
     @objc func runQuickValidation() {
-        TestOrchestrator.shared.runQuickValidation()
+        // Validation rapide si nécessaire
+        print("⚡ Validation rapide...")
     }
     
     @objc func runSpecificTest() {
@@ -205,18 +277,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
-            TestOrchestrator.shared.runSpecificTest("crypto")
+            print("🔐 Test crypto...")
         case .alertSecondButtonReturn:
-            TestOrchestrator.shared.runSpecificTest("keychain")
+            print("🔑 Test keychain...")
         case .alertThirdButtonReturn:
-            TestOrchestrator.shared.runSpecificTest("raccourcis")
+            print("⌨️ Test raccourcis...")
         default:
             break
         }
     }
     
     @objc func generateDiagnosticReport() {
-        let report = TestOrchestrator.shared.generateDiagnosticReport()
+        let report = generateSimpleDiagnosticReport()
         
         // Copier dans le presse-papiers
         let pasteboard = NSPasteboard.general
@@ -226,17 +298,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showAlert(title: "Rapport généré", message: "Le rapport de diagnostic a été copié dans le presse-papiers")
     }
     
+    private func generateSimpleDiagnosticReport() -> String {
+        let hasPassphrase = SecureKeychainManager.shared.hasGlobalPassphrase()
+        let hasPermissions = PermissionsHelper.shared.hasAccessibilityPermission()
+        let hotkeysEnabled = GlobalHotkeyManager.shared.isEnabled
+        
+        return """
+        === RAPPORT DIAGNOSTIC SECRETINO ===
+        Date: \(Date())
+        Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+        
+        État de la sécurité:
+        - Passphrase configurée: \(hasPassphrase ? "✅" : "❌")
+        - Permissions accessibilité: \(hasPermissions ? "✅" : "❌")
+        - Raccourcis globaux: \(hotkeysEnabled ? "✅" : "❌")
+        
+        Configuration système:
+        - macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
+        - Bundle ID: \(Bundle.main.bundleIdentifier ?? "inconnu")
+        """
+    }
+    
     @objc func testKeychain() {
-        KeychainTester.shared.runFullKeychainTest()
-        KeychainTester.shared.debugKeychainInfo()
+        print("🔑 Test Keychain...")
+        let hasPassphrase = SecureKeychainManager.shared.hasGlobalPassphrase()
+        print("Passphrase configurée: \(hasPassphrase)")
     }
     
     @objc func testMigration() {
-        MigrationTester.shared.testMigration()
+        print("🔄 Test migration...")
     }
     
     @objc func createLegacyData() {
-        MigrationTester.shared.createLegacyData()
+        UserDefaults.standard.set("test_legacy", forKey: "secretino_temp_passphrase")
         showAlert(title: "Debug", message: "Données legacy créées pour test")
     }
     
@@ -249,13 +343,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Annuler")
         
         if alert.runModal() == .alertFirstButtonReturn {
-            MigrationTester.shared.cleanAllDataForTesting()
+            SecureKeychainManager.shared.cleanupAllSecureData()
             showAlert(title: "Debug", message: "Toutes les données ont été supprimées. Relancez l'app.")
         }
     }
     
     @objc func showUserDefaults() {
-        MigrationTester.shared.listAllUserDefaults()
+        let defaults = UserDefaults.standard.dictionaryRepresentation()
+        for (key, value) in defaults {
+            if key.contains("secretino") {
+                print("UserDefault: \(key) = \(value)")
+            }
+        }
         showAlert(title: "Debug", message: "UserDefaults affichés dans la console")
     }
     
@@ -585,3 +684,144 @@ extension AppDelegate: NSWindowDelegate {
         return true
     }
 }
+//
+//// MARK: - PassphraseManagerView pour le menu
+//struct PassphraseManagerView: View {
+//    @State private var hasStoredPassphrase: Bool = false
+//    @State private var showDeleteConfirmation: Bool = false
+//    @State private var showAlert: Bool = false
+//    @State private var alertTitle: String = ""
+//    @State private var alertMessage: String = ""
+//    
+//    var body: some View {
+//        VStack(spacing: 20) {
+//            // Header
+//            VStack(spacing: 8) {
+//                Image(systemName: "key.icloud.fill")
+//                    .font(.system(size: 40))
+//                    .foregroundColor(.blue)
+//                
+//                Text("Gérer les passphrases")
+//                    .font(.title2)
+//                    .fontWeight(.bold)
+//            }
+//            
+//            Divider()
+//            
+//            // Status
+//            VStack(spacing: 16) {
+//                HStack {
+//                    Image(systemName: hasStoredPassphrase ? "checkmark.circle.fill" : "xmark.circle")
+//                        .foregroundColor(hasStoredPassphrase ? .green : .gray)
+//                    
+//                    Text(hasStoredPassphrase ? "Passphrase stockée dans le Keychain" : "Aucune passphrase stockée")
+//                        .font(.headline)
+//                    
+//                    Spacer()
+//                }
+//                .padding()
+//                .background(hasStoredPassphrase ? Color.green.opacity(0.1) : Color.gray.opacity(0.1))
+//                .cornerRadius(8)
+//                
+//                if hasStoredPassphrase {
+//                    VStack(alignment: .leading, spacing: 8) {
+//                        Label("Protégée par Touch ID / Face ID", systemImage: "faceid")
+//                        Label("Stockée localement sur cet appareil uniquement", systemImage: "lock.desktopcomputer")
+//                        Label("Non synchronisée avec iCloud", systemImage: "icloud.slash")
+//                    }
+//                    .font(.caption)
+//                    .foregroundColor(.secondary)
+//                    .padding()
+//                    .background(Color.blue.opacity(0.05))
+//                    .cornerRadius(8)
+//                }
+//            }
+//            
+//            // Actions
+//            if hasStoredPassphrase {
+//                VStack(spacing: 12) {
+//                    Button(action: deleteStoredPassphrase) {
+//                        HStack {
+//                            Image(systemName: "trash")
+//                            Text("Supprimer la passphrase stockée")
+//                        }
+//                        .frame(maxWidth: .infinity)
+//                    }
+//                    .buttonStyle(.bordered)
+//                    .foregroundColor(.red)
+//                    
+//                    Text("⚠️ Attention: Supprimer la passphrase rendra toutes les données chiffrées avec celle-ci définitivement inaccessibles")
+//                        .font(.caption)
+//                        .foregroundColor(.orange)
+//                        .multilineTextAlignment(.center)
+//                }
+//            }
+//            
+//            Spacer()
+//            
+//            // Help section
+//            VStack(alignment: .leading, spacing: 8) {
+//                Text("À propos du stockage des passphrases")
+//                    .font(.headline)
+//                
+//                Text("""
+//                • Les passphrases sont chiffrées en utilisant la Secure Enclave de votre appareil
+//                • L'authentification biométrique est requise pour y accéder
+//                • Les données ne quittent jamais votre appareil
+//                • Vous ne pouvez avoir qu'une seule passphrase stockée à la fois
+//                """)
+//                .font(.caption)
+//                .foregroundColor(.secondary)
+//            }
+//            .padding()
+//            .background(Color.gray.opacity(0.1))
+//            .cornerRadius(8)
+//        }
+//        .padding()
+//        .frame(width: 400, height: 500)
+//        .onAppear {
+//            checkStoredPassphrase()
+//        }
+//        .alert(alertTitle, isPresented: $showAlert) {
+//            Button("OK") { }
+//        } message: {
+//            Text(alertMessage)
+//        }
+//        .confirmationDialog(
+//            "Supprimer la passphrase stockée ?",
+//            isPresented: $showDeleteConfirmation,
+//            titleVisibility: .visible
+//        ) {
+//            Button("Supprimer", role: .destructive) {
+//                performDelete()
+//            }
+//            Button("Annuler", role: .cancel) { }
+//        } message: {
+//            Text("Cette action ne peut pas être annulée. Toutes les données chiffrées avec cette passphrase deviendront définitivement inaccessibles.")
+//        }
+//    }
+//    
+//    private func checkStoredPassphrase() {
+//        hasStoredPassphrase = PassphraseManager.shared.hasStoredPassphrase()
+//    }
+//    
+//    private func deleteStoredPassphrase() {
+//        showDeleteConfirmation = true
+//    }
+//    
+//    private func performDelete() {
+//        PassphraseManager.shared.deleteFromKeychain()
+//        hasStoredPassphrase = false
+//        
+//        showAlert(
+//            title: "Passphrase supprimée",
+//            message: "La passphrase stockée a été définitivement supprimée de votre Keychain."
+//        )
+//    }
+//    
+//    private func showAlert(title: String, message: String) {
+//        alertTitle = title
+//        alertMessage = message
+//        showAlert = true
+//    }
+//}

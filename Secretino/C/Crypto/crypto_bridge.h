@@ -4,7 +4,7 @@
 //
 //  Bridge header pour exposer les fonctions C à Swift
 //
-
+// crypto_bridge.h - CORRECTED
 #ifndef crypto_bridge_h
 #define crypto_bridge_h
 
@@ -12,12 +12,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Inclure les headers OpenSSL nécessaires
+// OpenSSL headers only
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
+
+#include "../Utils/utils.h"
 
 // Constantes de crypto.h
 #define SALT_SIZE 32
@@ -34,7 +36,7 @@ typedef struct {
     char *error_message;
 } CryptoResult;
 
-// Fonctions exposées à Swift (wrappers autour de tes fonctions C)
+// Fonctions exposées à Swift (crypto uniquement)
 CryptoResult* swift_encrypt_data(const char *plaintext, const char *passphrase);
 CryptoResult* swift_decrypt_data(const unsigned char *ciphertext, int ciphertext_len, const char *passphrase);
 char* swift_base64_encode(const unsigned char *input, int length);

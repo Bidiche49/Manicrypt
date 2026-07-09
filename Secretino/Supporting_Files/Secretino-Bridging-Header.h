@@ -8,6 +8,7 @@
 #ifndef Secretino_Bridging_Header_h
 #define Secretino_Bridging_Header_h
 
-#include "../Crypto/crypto_bridge.h"
+#include "../C/Crypto/crypto_bridge.h"
+#include "../C/Passphrase/passphrase_generator.h"
 
 #endif /* Secretino_Bridging_Header_h */
