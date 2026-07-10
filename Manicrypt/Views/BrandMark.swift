@@ -59,6 +59,45 @@ struct CrochetsGlyph: View {
     }
 }
 
+/// Variante « feedback » du glyphe : joue une seule fois, à l'apparition, l'animation
+/// de SCELLEMENT (`sealing: true`, chiffrement — les crochets se referment) ou
+/// d'OUVERTURE (`sealing: false`, déchiffrement — les crochets s'écartent et s'estompent).
+///
+/// `size` est l'encombrement layout ; l'artwork est agrandi pour le remplir (le canvas
+/// 1024 réserve de larges marges autour des crochets) et peut déborder légèrement du
+/// cadre pendant la phase ouverte — prévoir un peu d'air autour (padding du parent).
+/// Pour rejouer l'animation à chaque présentation, changer l'identité de la vue
+/// (`.id(...)`) côté appelant.
+struct AnimatedCrochetsGlyph: View {
+    let sealing: Bool
+    let color: Color
+    var size: CGFloat = 18
+    var delay: Double = 0.12
+
+    @State private var sealed: Double
+
+    init(sealing: Bool, color: Color, size: CGFloat = 18, delay: Double = 0.12) {
+        self.sealing = sealing
+        self.color = color
+        self.size = size
+        self.delay = delay
+        _sealed = State(initialValue: sealing ? 0 : 1)
+    }
+
+    var body: some View {
+        CrochetsGlyph(sealed: sealed, color: color)
+            // Les crochets (y compris leur trait) occupent ~42 % de la hauteur du
+            // canvas : on dessine à 2.4× puis on rend l'encombrement réel `size`.
+            .frame(width: size * 2.4, height: size * 2.4)
+            .frame(width: size, height: size)
+            .onAppear {
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.72).delay(delay)) {
+                    sealed = sealing ? 1 : 0
+                }
+            }
+    }
+}
+
 /// Mini-icône d'app Manicrypt : squircle + dégradé de marque (indigo → violet) + crochets.
 /// `sealed` pilote l'animation « enserrer / libérer » (cf. design_manic/glyphs/manicrypt/ANIMATION.md).
 struct ManicryptMark: View {
