@@ -395,6 +395,7 @@ class GlobalHotkeyManager: ObservableObject {
             switch performEncrypt(capture.text, passphrase: passphrase) {
             case .success(let cipher):
                 pasteInPlace(cipher, restoringTo: capture.snapshot) // libère le verrou après restore
+                OverlayPanelController.shared.showInPlaceGlyph(sealing: true)
             case .failure(let message):
                 restorePasteboard(capture.snapshot)
                 OverlayPanelController.shared.showError(.failure(message))
@@ -419,6 +420,7 @@ class GlobalHotkeyManager: ObservableObject {
             switch performDecrypt(capture.text, passphrase: passphrase) {
             case .success(let plaintext):
                 pasteInPlace(plaintext, restoringTo: capture.snapshot) // libère le verrou après restore
+                OverlayPanelController.shared.showInPlaceGlyph(sealing: false)
             case .failure:
                 // Rien à coller : restaurer, puis proposer l'overlay + autre passphrase.
                 restorePasteboard(capture.snapshot)

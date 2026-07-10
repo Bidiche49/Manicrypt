@@ -52,6 +52,16 @@ final class OverlayPanelController {
         present(state: .encryptedHUD, alreadyCopied: true, installMonitors: false, autoDismiss: 1.5)
     }
 
+    /// ⌃⇧E / ⌃⇧D dans un champ éditable : le remplacement in-place est déjà lancé,
+    /// simple témoin visuel — glyphe de marque flottant près du curseur, qui joue
+    /// l'animation (scellement ou ouverture) puis disparaît. Non-activant, sans
+    /// moniteurs : l'utilisateur continue de taper, le focus ne bouge jamais.
+    func showInPlaceGlyph(sealing: Bool) {
+        pendingPlaintext = nil
+        currentRetry = nil
+        present(state: .inPlaceGlyph(sealing: sealing), installMonitors: false, autoDismiss: 1.1)
+    }
+
     /// ⌃⇧D : clair affiché seulement. `retry` retente avec une autre passphrase.
     func showDecryptSuccess(_ plaintext: String, retry: @escaping (String) -> String?) {
         pendingPlaintext = plaintext
