@@ -446,11 +446,7 @@ class PassphraseManager: ObservableObject {
             print("🔍 DEBUG: Conversion du pointeur C vers String...")
             let passphrase = String(cString: resultData.passphrase)
             
-            print("🔍 DEBUG: Passphrase convertie:")
-            print("   - Longueur: \(passphrase.count)")
-            print("   - Contenu: '\(passphrase)'")
-            print("   - Premier caractère: '\(passphrase.first ?? Character(" "))'")
-            print("   - Dernier caractère: '\(passphrase.last ?? Character(" "))'")
+            print("🔍 DEBUG: Passphrase convertie (longueur: \(passphrase.count), contenu masqué)")
             
             // ✅ TEST 3: Vérifier l'assignation
             DispatchQueue.main.async {
@@ -460,7 +456,7 @@ class PassphraseManager: ObservableObject {
                 self.isPassphraseGenerated = true
                 
                 print("🔍 DEBUG: État après assignation:")
-                print("   - currentPassphrase: '\(self.currentPassphrase)'")
+                print("   - currentPassphrase définie: \(!self.currentPassphrase.isEmpty)")
                 print("   - isPassphraseGenerated: \(self.isPassphraseGenerated)")
                 print("   - passphraseData nil: \(self.passphraseData == nil)")
                 
@@ -499,7 +495,7 @@ class PassphraseManager: ObservableObject {
         
         if resultData.success == 1 {
             let passphrase = String(cString: resultData.passphrase)
-            print("✅ TEST: Passphrase générée: '\(passphrase)'")
+            print("✅ TEST: Passphrase générée (longueur: \(passphrase.count), contenu masqué)")
             return passphrase
         } else {
             let error = String(cString: resultData.error_message)
@@ -601,9 +597,8 @@ class PassphraseManager: ObservableObject {
             return
         }
         
-        print("🔍 DEBUG: Copie dans le presse-papiers...")
-        print("   - Contenu à copier: '\(currentPassphrase)'")
-        
+        print("🔍 DEBUG: Copie dans le presse-papiers (longueur: \(currentPassphrase.count), contenu masqué)")
+
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let success = pasteboard.setString(currentPassphrase, forType: .string)

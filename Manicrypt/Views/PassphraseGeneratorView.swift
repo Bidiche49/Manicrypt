@@ -225,12 +225,10 @@ struct PassphraseGeneratorView: View {
         === DEBUG PASSPHRASE ===
         Longueur: \(passphrase.count)
         Vide: \(passphrase.isEmpty)
-        Premier char: \(passphrase.first.map(String.init) ?? "nil")
-        Dernier char: \(passphrase.last.map(String.init) ?? "nil")
         UTF8 bytes: \(passphrase.utf8.count)
         Contient espaces: \(passphrase.contains(" "))
         Contient newlines: \(passphrase.contains("\n"))
-        Raw: '\(passphrase)'
+        (contenu masqué)
         """
         
         print("🔍 DEBUG COMPLETE:")
@@ -258,8 +256,7 @@ struct PassphraseGeneratorView: View {
     }
     
     private func copyPassphrase() {
-        print("🔍 COPY: Tentative de copie...")
-        print("   - Passphrase: '\(manager.currentPassphrase)'")
+        print("🔍 COPY: Tentative de copie (longueur: \(manager.currentPassphrase.count), contenu masqué)")
         manager.copyToClipboard()
         
         showAlert(
