@@ -19,6 +19,9 @@ import SwiftUI
 enum OverlayState: Equatable {
     /// HUD éphémère : le chiffré vient d'être copié dans le presse-papier.
     case encryptedHUD
+    /// Glyphe flottant éphémère : remplacement in-place effectué dans un champ
+    /// éditable (`sealing: true` = chiffrement, `false` = déchiffrement).
+    case inPlaceGlyph(sealing: Bool)
     /// Overlay : texte clair déchiffré (copie manuelle seulement).
     case decrypted(String)
     /// Sélection vide ou capture ⌘C échouée.
@@ -39,6 +42,11 @@ final class OverlayViewModel: ObservableObject {
     @Published private(set) var state: OverlayState = .emptySelection
     @Published private(set) var didCopy: Bool = false
 
+    /// Incrémenté à chaque présentation : sert d'identité (`.id`) aux glyphes
+    /// animés pour que l'animation rejoue même si l'état reste dans le même cas
+    /// (ex. deux ⌃⇧E consécutifs sans fermeture entre les deux).
+    @Published private(set) var presentationID: Int = 0
+
     /// Saisie one-shot d'une passphrase alternative (jamais persistée ni loggée).
     @Published var altPassphrase: String = ""
     /// Vrai si le dernier essai avec la passphrase alternative a échoué.
@@ -56,6 +64,7 @@ final class OverlayViewModel: ObservableObject {
         self.didCopy = alreadyCopied
         self.altPassphrase = ""
         self.altFailed = false
+        self.presentationID += 1
     }
 
     /// Remet à zéro — libère aussi le texte affiché et la saisie alternative.
@@ -90,6 +99,7 @@ final class OverlayViewModel: ObservableObject {
         didCopy = false
         altPassphrase = ""
         altFailed = false
+        presentationID += 1
     }
 
     func markAltFailed() {
@@ -107,9 +117,13 @@ struct OverlayView: View {
 
     var body: some View {
         Group {
-            if case .encryptedHUD = viewModel.state {
+            switch viewModel.state {
+            case .encryptedHUD:
                 hud
-            } else {
+            case .inPlaceGlyph(let sealing):
+                FloatingGlyphView(sealing: sealing)
+                    .id(viewModel.presentationID)
+            default:
                 card
             }
         }
@@ -120,7 +134,8 @@ struct OverlayView: View {
 
     private var hud: some View {
         HStack(spacing: 8) {
-            Image(systemName: "lock.fill").foregroundStyle(.green)
+            AnimatedCrochetsGlyph(sealing: true, color: .green, size: 18)
+                .id(viewModel.presentationID)
             Text("Chiffré copié ✓").font(.headline)
         }
         .padding(.horizontal, 18)
@@ -149,9 +164,7 @@ struct OverlayView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: accent.icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(accent.color)
+            accentIcon
             Text(accent.title).font(.headline)
             Spacer()
             Button(action: viewModel.close) {
@@ -207,8 +220,8 @@ struct OverlayView: View {
         case .failure(let message):
             messageBlock(title: "Opération impossible", detail: message)
 
-        case .encryptedHUD:
-            EmptyView() // rendu par `hud`, jamais ici
+        case .encryptedHUD, .inPlaceGlyph:
+            EmptyView() // rendus par `hud` / `FloatingGlyphView`, jamais ici
         }
     }
 
@@ -266,8 +279,10 @@ struct OverlayView: View {
 
     // MARK: Accent d'en-tête
 
+    /// `icon == nil` : l'en-tête affiche le glyphe de marque animé (ouverture)
+    /// à la place d'un SF Symbol.
     private struct Accent {
-        let icon: String
+        let icon: String?
         let title: String
         let color: Color
     }
@@ -275,10 +290,54 @@ struct OverlayView: View {
     private var accent: Accent {
         switch viewModel.state {
         case .decrypted:
-            return Accent(icon: "lock.open.fill", title: "Déchiffré", color: .blue)
-        case .encryptedHUD, .emptySelection, .notManicryptMessage,
+            return Accent(icon: nil, title: "Déchiffré", color: .blue)
+        case .encryptedHUD, .inPlaceGlyph, .emptySelection, .notManicryptMessage,
              .passphraseNotConfigured, .failure:
             return Accent(icon: "exclamationmark.triangle.fill", title: "Manicrypt", color: .orange)
         }
+    }
+
+    @ViewBuilder private var accentIcon: some View {
+        if let icon = accent.icon {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(accent.color)
+        } else {
+            AnimatedCrochetsGlyph(sealing: false, color: accent.color, size: 17)
+                .id(viewModel.presentationID)
+        }
+    }
+}
+
+// MARK: - Glyphe flottant (feedback in-place)
+
+/// Témoin purement visuel du remplacement in-place dans un champ éditable :
+/// le glyphe de marque apparaît près du curseur, joue l'animation de scellement
+/// (⌃⇧E) ou d'ouverture (⌃⇧D), puis s'estompe. Aucune interaction — le panel
+/// hôte est non-activant et se ferme seul (voir `OverlayPanelController`).
+struct FloatingGlyphView: View {
+    let sealing: Bool
+
+    @State private var visible = false
+
+    var body: some View {
+        AnimatedCrochetsGlyph(sealing: sealing, color: sealing ? .green : .blue, size: 24)
+            .padding(16)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+            .opacity(visible ? 1 : 0)
+            .scaleEffect(visible ? 1 : 0.85)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.15)) { visible = true }
+                // Fade out après le jeu du glyphe (~0.15 fade + spring ~0.6),
+                // avant l'auto-fermeture du panel à ~1.1 s.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+                    withAnimation(.easeIn(duration: 0.3)) { visible = false }
+                }
+            }
     }
 }
