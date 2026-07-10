@@ -394,8 +394,10 @@ class GlobalHotkeyManager: ObservableObject {
             // ⌃⇧E in-place : chiffre et colle par-dessus la sélection.
             switch performEncrypt(capture.text, passphrase: passphrase) {
             case .success(let cipher):
+                // Ancre du glyphe : rect de la sélection, à lire AVANT le ⌘V qui la remplace.
+                let anchor = FocusContextDetector.shared.selectionScreenBounds()
                 pasteInPlace(cipher, restoringTo: capture.snapshot) // libère le verrou après restore
-                OverlayPanelController.shared.showInPlaceGlyph(sealing: true)
+                OverlayPanelController.shared.showInPlaceGlyph(sealing: true, anchor: anchor)
             case .failure(let message):
                 restorePasteboard(capture.snapshot)
                 OverlayPanelController.shared.showError(.failure(message))
@@ -419,8 +421,10 @@ class GlobalHotkeyManager: ObservableObject {
             // ⌃⇧D in-place : déchiffre et colle par-dessus la sélection.
             switch performDecrypt(capture.text, passphrase: passphrase) {
             case .success(let plaintext):
+                // Ancre du glyphe : rect de la sélection, à lire AVANT le ⌘V qui la remplace.
+                let anchor = FocusContextDetector.shared.selectionScreenBounds()
                 pasteInPlace(plaintext, restoringTo: capture.snapshot) // libère le verrou après restore
-                OverlayPanelController.shared.showInPlaceGlyph(sealing: false)
+                OverlayPanelController.shared.showInPlaceGlyph(sealing: false, anchor: anchor)
             case .failure:
                 // Rien à coller : restaurer, puis proposer l'overlay + autre passphrase.
                 restorePasteboard(capture.snapshot)

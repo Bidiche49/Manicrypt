@@ -53,13 +53,16 @@ final class OverlayPanelController {
     }
 
     /// ⌃⇧E / ⌃⇧D dans un champ éditable : le remplacement in-place est déjà lancé,
-    /// simple témoin visuel — glyphe de marque flottant près du curseur, qui joue
-    /// l'animation (scellement ou ouverture) puis disparaît. Non-activant, sans
-    /// moniteurs : l'utilisateur continue de taper, le focus ne bouge jamais.
-    func showInPlaceGlyph(sealing: Bool) {
+    /// simple témoin visuel — glyphe de marque flottant qui joue l'animation
+    /// (scellement ou ouverture) puis disparaît. Non-activant, sans moniteurs :
+    /// l'utilisateur continue de taper, le focus ne bouge jamais.
+    /// `anchor` : rect écran (Cocoa) de la sélection traitée — le glyphe se centre
+    /// dessous (ou dessus). `nil` (bounds AX indisponibles) → repli près de la souris.
+    func showInPlaceGlyph(sealing: Bool, anchor: CGRect?) {
         pendingPlaintext = nil
         currentRetry = nil
-        present(state: .inPlaceGlyph(sealing: sealing), installMonitors: false, autoDismiss: 1.1)
+        present(state: .inPlaceGlyph(sealing: sealing),
+                installMonitors: false, autoDismiss: 1.1, anchor: anchor)
     }
 
     /// ⌃⇧D : clair affiché seulement. `retry` retente avec une autre passphrase.
@@ -89,7 +92,8 @@ final class OverlayPanelController {
     private func present(state: OverlayState,
                          alreadyCopied: Bool = false,
                          installMonitors: Bool = true,
-                         autoDismiss: TimeInterval? = nil) {
+                         autoDismiss: TimeInterval? = nil,
+                         anchor: CGRect? = nil) {
         assert(Thread.isMainThread, "L'overlay doit être présenté sur le main thread")
         ensurePanel()
         hudTimer?.invalidate()
@@ -103,7 +107,11 @@ final class OverlayPanelController {
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel else { return }
             self.resizePanelToFit()
-            self.positionPanelNearCursor()
+            if let anchor {
+                self.positionPanel(centeredOn: anchor)
+            } else {
+                self.positionPanelNearCursor()
+            }
             panel.orderFrontRegardless()
 
             // Annuler tout timer HUD armé par un `present` antérieur du même tour de
@@ -170,6 +178,32 @@ final class OverlayPanelController {
         if size.width < 1 { size.width = 376 }
         size.height = min(max(size.height, 60), 520)
         panel.setContentSize(size)
+    }
+
+    /// Centre le panel horizontalement sur `anchor` (rect écran Cocoa de la
+    /// sélection traitée) et le place juste dessous — ou au-dessus si la place
+    /// manque. Donne au feedback in-place une position signifiante : le texte
+    /// concerné, là où la souris peut être n'importe où pendant la frappe.
+    private func positionPanel(centeredOn anchor: CGRect) {
+        guard let panel = panel else { return }
+
+        let size = panel.frame.size
+        let mid = NSPoint(x: anchor.midX, y: anchor.midY)
+        let screen = NSScreen.screens.first { NSMouseInRect(mid, $0.frame, false) }
+            ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        var origin = NSPoint(x: anchor.midX - size.width / 2,
+                             y: anchor.minY - size.height - 6)
+
+        if origin.x + size.width > visible.maxX { origin.x = visible.maxX - size.width - 8 }
+        if origin.x < visible.minX { origin.x = visible.minX + 8 }
+
+        // Pas de place sous la sélection → basculer au-dessus.
+        if origin.y < visible.minY { origin.y = anchor.maxY + 6 }
+        if origin.y + size.height > visible.maxY { origin.y = visible.maxY - size.height - 8 }
+
+        panel.setFrameOrigin(origin)
     }
 
     private func positionPanelNearCursor() {

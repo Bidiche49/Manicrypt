@@ -73,6 +73,64 @@ final class FocusContextDetector {
         return .editable
     }
 
+    /// Rect ÉCRAN de la sélection de texte de l'élément focusé, en coordonnées
+    /// Cocoa (origine bas-gauche), ou `nil` si l'app ne l'expose pas via AX.
+    /// Sert d'ancre au feedback visuel in-place — à lire AVANT le ⌘V qui
+    /// remplace la sélection. Seule la géométrie est lue, jamais le contenu.
+    func selectionScreenBounds() -> CGRect? {
+        let systemWide = AXUIElementCreateSystemWide()
+
+        var focusedRef: CFTypeRef?
+        let focusStatus = AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedRef
+        )
+        guard focusStatus == .success, let focused = focusedRef,
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        // Type vérifié ci-dessus : le cast ne peut pas échouer (pas de crash).
+        let element = focused as! AXUIElement
+
+        // Étendue de la sélection dans le texte focusé.
+        var rangeRef: CFTypeRef?
+        let rangeStatus = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &rangeRef
+        )
+        guard rangeStatus == .success, let rangeValue = rangeRef,
+              CFGetTypeID(rangeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        // Rect écran couvrant cette étendue (origine HAUT-gauche côté AX).
+        var boundsRef: CFTypeRef?
+        let boundsStatus = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            rangeValue,
+            &boundsRef
+        )
+        var axRect = CGRect.zero
+        guard boundsStatus == .success, let boundsValue = boundsRef,
+              CFGetTypeID(boundsValue) == AXValueGetTypeID(),
+              AXValueGetValue(boundsValue as! AXValue, .cgRect, &axRect),
+              axRect != .zero else {
+            return nil
+        }
+
+        // Conversion AX (origine haut-gauche de l'écran principal) → Cocoa
+        // (origine bas-gauche). Valable aussi en multi-écrans : les deux repères
+        // partagent l'écran principal comme référence.
+        guard let primary = NSScreen.screens.first else { return nil }
+        return CGRect(x: axRect.minX,
+                      y: primary.frame.maxY - axRect.maxY,
+                      width: axRect.width,
+                      height: axRect.height)
+    }
+
     // MARK: - Utilitaire
 
     private func copyStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
