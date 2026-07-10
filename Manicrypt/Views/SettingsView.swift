@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var permissionStatus: Bool = false
     @State private var biometryAvailable: Bool = false
     @State private var isConfiguring: Bool = false
+    @State private var biometricTimeout: BiometricSessionTimeout = ConfigurationManager.shared.biometricSessionTimeout
     
     var body: some View {
         // ✅ CORRECTION: Conteneur avec taille fixe
@@ -174,8 +175,45 @@ struct SettingsView: View {
                         }
                     }
                     
+                    // Verrouillage biométrique
+                    if hotkeyManager.hasConfiguredPassphrase {
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Verrouillage biométrique")
+                                .font(.headline)
+
+                            Text("Fréquence à laquelle Touch ID / Face ID est redemandé pour utiliser les raccourcis.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Picker("Redemander", selection: $biometricTimeout) {
+                                ForEach(BiometricSessionTimeout.allCases) { option in
+                                    Text(option.label).tag(option)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .onChange(of: biometricTimeout) { _, newValue in
+                                applyBiometricTimeout(newValue)
+                            }
+
+                            if biometricTimeout == .eachLaunch {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                    Text("Manicrypt tourne en permanence en arrière-plan : vos raccourcis restent déverrouillés jusqu'à la fermeture de l'app (souvent jusqu'au redémarrage du Mac).")
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                }
+                                .padding(12)
+                                .background(Color.orange.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                        }
+                    }
+
                     Divider()
-                    
+
                     // Activation des raccourcis
                     VStack(alignment: .leading, spacing: 12) {
                         if hotkeyManager.canEnable {
@@ -234,7 +272,7 @@ struct SettingsView: View {
                             Text("2. Appuyez sur ⌃⇧E pour chiffrer ou ⌃⇧D pour déchiffrer")
                             Text("3. Authentifiez-vous avec Touch ID/Face ID au premier usage")
                             Text("4. Le texte est automatiquement remplacé")
-                            Text("5. Session active pendant 10 minutes puis ré-authentification")
+                            Text("5. Ré-authentification selon votre réglage de verrouillage biométrique")
                         }
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -274,7 +312,7 @@ struct SettingsView: View {
             }
         }
         // ✅ CORRECTION: Taille fixe pour éviter les problèmes de redimensionnement
-        .frame(width: 450, height: permissionStatus ? 840 : 750)
+        .frame(width: 450, height: permissionStatus ? 940 : 850)
         .alert(alertTitle, isPresented: $showAlert) {
             Button("OK") { }
         } message: {
@@ -294,6 +332,30 @@ struct SettingsView: View {
     private func checkSystemCapabilities() {
         permissionStatus = PermissionsHelper.shared.hasAccessibilityPermission()
         biometryAvailable = SecureKeychainManager.shared.isBiometryAvailable()
+        biometricTimeout = ConfigurationManager.shared.biometricSessionTimeout
+    }
+
+    /// Applique le nouveau réglage de verrouillage. « À chaque ouverture » demande
+    /// une confirmation (option la moins sûre). Le changement prend effet
+    /// immédiatement : la session en cours est purgée → ré-auth à la prochaine action.
+    private func applyBiometricTimeout(_ newValue: BiometricSessionTimeout) {
+        if newValue == .eachLaunch {
+            let alert = NSAlert()
+            alert.messageText = "Déverrouiller à chaque ouverture ?"
+            alert.informativeText = "Manicrypt reste actif en arrière-plan en permanence. Avec cette option, vos raccourcis restent déverrouillés jusqu'à la fermeture de l'app — souvent jusqu'au redémarrage du Mac. C'est l'option la moins sécurisée."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Utiliser quand même")
+            alert.addButton(withTitle: "Annuler")
+
+            if alert.runModal() != .alertFirstButtonReturn {
+                // Annulé : revenir au réglage précédent sans re-déclencher onChange en boucle.
+                biometricTimeout = ConfigurationManager.shared.biometricSessionTimeout
+                return
+            }
+        }
+
+        ConfigurationManager.shared.biometricSessionTimeout = newValue
+        GlobalHotkeyManager.shared.resetSessionForPolicyChange()
     }
     
     private func configurePassphrase() {

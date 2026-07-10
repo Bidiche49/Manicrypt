@@ -87,15 +87,15 @@ struct ManicryptView: View {
         VStack(spacing: 18) {
             // Header
             VStack {
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(.blue)
-                
+                ManicryptMark(size: 64, sealed: isEncrypting ? 1 : 0)
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                    .animation(.spring(response: 0.45, dampingFraction: 0.72), value: isEncrypting)
+
                 Text("Manicrypt")
                     .font(.title)
                     .fontWeight(.bold)
-                
-                Text("Cryptage militaire AES-256-GCM")
+
+                Text("Chiffrement AES-256-GCM")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -105,8 +105,8 @@ struct ManicryptView: View {
             
             // Mode selection
             Picker("Mode", selection: $isEncrypting) {
-                Text("🔒 Chiffrer").tag(true)
-                Text("🔓 Déchiffrer").tag(false)
+                Text("Chiffrer").tag(true)
+                Text("Déchiffrer").tag(false)
             }
             .pickerStyle(SegmentedPickerStyle())
             

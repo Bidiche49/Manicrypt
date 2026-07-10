@@ -9,6 +9,47 @@ import Foundation
 import Security
 import LocalAuthentication
 
+/// Fréquence de ré-authentification biométrique pour débloquer les raccourcis globaux.
+/// Gouverne combien de temps la passphrase déchiffrée reste en cache mémoire avant
+/// qu'un nouveau Touch ID / Face ID soit exigé.
+enum BiometricSessionTimeout: String, CaseIterable, Identifiable {
+    case eachTime          // ré-auth à chaque utilisation
+    case fiveMinutes
+    case thirtyMinutes
+    case oneHour           // défaut
+    case threeHours
+    case twentyFourHours
+    case eachLaunch        // déverrouillé jusqu'à la fermeture de l'app (le moins sûr)
+
+    var id: String { rawValue }
+
+    /// Durée du cache en secondes. `0` = ré-auth à chaque fois (jamais mis en cache
+    /// entre deux opérations). `.infinity` = jamais expiré tant que l'app vit.
+    var duration: TimeInterval {
+        switch self {
+        case .eachTime:        return 0
+        case .fiveMinutes:     return 5 * 60
+        case .thirtyMinutes:   return 30 * 60
+        case .oneHour:         return 60 * 60
+        case .threeHours:      return 3 * 60 * 60
+        case .twentyFourHours: return 24 * 60 * 60
+        case .eachLaunch:      return .infinity
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .eachTime:        return "À chaque utilisation"
+        case .fiveMinutes:     return "Toutes les 5 minutes"
+        case .thirtyMinutes:   return "Toutes les 30 minutes"
+        case .oneHour:         return "Toutes les heures"
+        case .threeHours:      return "Toutes les 3 heures"
+        case .twentyFourHours: return "Toutes les 24 heures"
+        case .eachLaunch:      return "À chaque ouverture de l'app"
+        }
+    }
+}
+
 class ConfigurationManager {
     static let shared = ConfigurationManager()
     
@@ -20,6 +61,7 @@ class ConfigurationManager {
         static let lastVersion = "manicrypt_last_version"
         static let hasRequestedAccessibility = "hasRequestedAccessibility"
         static let hasShownWelcome = "hasShownWelcome"
+        static let biometricTimeout = "manicrypt_biometric_timeout"
     }
     
     // MARK: - Keychain Keys
@@ -59,6 +101,18 @@ class ConfigurationManager {
     var hasGlobalPassphrase: Bool {
         get { UserDefaults.standard.bool(forKey: Keys.hasPassphrase) }
         set { UserDefaults.standard.set(newValue, forKey: Keys.hasPassphrase) }
+    }
+
+    /// Politique de verrouillage biométrique. Défaut : toutes les heures.
+    var biometricSessionTimeout: BiometricSessionTimeout {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: Keys.biometricTimeout),
+                  let value = BiometricSessionTimeout(rawValue: raw) else {
+                return .oneHour
+            }
+            return value
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Keys.biometricTimeout) }
     }
     
     // MARK: - Welcome & Permissions

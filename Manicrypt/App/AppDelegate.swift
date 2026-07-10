@@ -125,8 +125,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         if let button = statusItem.button {
-            // Icône améliorée
-            if let image = NSImage(systemSymbolName: "lock.shield.fill", accessibilityDescription: "Manicrypt") {
+            // Icône menu bar — glyphe Manicrypt (template, teinté clair/sombre par le système)
+            if let image = NSImage(named: "MenuBarIcon") {
+                image.isTemplate = true
                 image.size = NSSize(width: 18, height: 18)
                 button.image = image
             } else {

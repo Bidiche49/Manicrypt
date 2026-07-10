@@ -39,8 +39,11 @@ class GlobalHotkeyManager: ObservableObject {
         static let modifiers: UInt32 = UInt32(controlKey + shiftKey)
     }
     
-    // Timeout de session (10 minutes)
-    private let sessionTimeout: TimeInterval = 600
+    // Timeout de session : lu dynamiquement depuis la politique biométrique
+    // configurée (Préférences). Voir BiometricSessionTimeout.
+    private var sessionTimeout: TimeInterval {
+        ConfigurationManager.shared.biometricSessionTimeout.duration
+    }
     
     private init() {
         // Vérifier si une passphrase est configurée
@@ -182,12 +185,28 @@ class GlobalHotkeyManager: ObservableObject {
 
     private func startSessionTimer() {
         sessionTimer?.invalidate()
-        sessionTimer = Timer.scheduledTimer(withTimeInterval: sessionTimeout, repeats: false) { [weak self] _ in
+        sessionTimer = nil
+
+        let timeout = sessionTimeout
+        // « À chaque utilisation » (0) : la session est purgée par `finishProcessing`
+        // après l'opération courante — inutile d'armer une minuterie.
+        // « À chaque ouverture » (.infinity) : aucune expiration, la session vit
+        // jusqu'à la fermeture de l'app.
+        guard timeout > 0, timeout != .infinity else { return }
+
+        sessionTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.clearSession()
                 self?.showNotification(title: "Session expirée", message: "Authentifiez-vous à nouveau pour utiliser les raccourcis")
             }
         }
+    }
+
+    /// Force la ré-authentification à la prochaine utilisation. Appelé quand
+    /// l'utilisateur change la politique de verrouillage biométrique dans les
+    /// Préférences, pour que le nouveau réglage s'applique immédiatement.
+    func resetSessionForPolicyChange() {
+        clearSession()
     }
     
     private func clearSession() {
@@ -347,6 +366,11 @@ class GlobalHotkeyManager: ObservableObject {
     /// (y compris après la restauration différée d'un collage in-place).
     private func finishProcessing() {
         isProcessing = false
+        // « À chaque utilisation » : ne jamais conserver la passphrase entre deux
+        // opérations → purger la session dès la fin de celle-ci.
+        if ConfigurationManager.shared.biometricSessionTimeout == .eachTime {
+            clearSession()
+        }
     }
 
     /// Applique le comportement contextuel et les règles strictes de presse-papier.
