@@ -31,6 +31,7 @@ class TestOrchestrator {
     
     private let testRunners: [TestRunner] = [
         CryptoTester(),
+        MessageFormatTester(),
         KeychainTester.shared as TestRunner,
         MigrationTester.shared as TestRunner,
         PermissionTester(),

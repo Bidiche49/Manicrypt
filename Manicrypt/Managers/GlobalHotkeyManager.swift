@@ -568,11 +568,16 @@ class GlobalHotkeyManager: ObservableObject {
             return .failure("Encodage base64 impossible.")
         }
         defer { free(base64) }
-        return .success(String(cString: base64))
+        // Format versionné MC1. (décision D2, 2026-07-11) : le mode manuel est
+        // aligné sur le mode transparent — tout chiffré produit est détectable.
+        return .success(ManicryptMessageFormat.wrap(String(cString: base64)))
     }
 
     private func performDecrypt(_ text: String, passphrase: String) -> CryptoOutcome {
-        guard let decodeResult = swift_base64_decode(text) else {
+        // Rétrocompat format MC1. : accepte les messages avec ou sans préfixe
+        // versionné, et trime le texte (whitespace fatal au base64 NO_NL).
+        let payload = ManicryptMessageFormat.payloadForDecryption(text)
+        guard let decodeResult = swift_base64_decode(payload) else {
             return .failure("Format base64 invalide.")
         }
         defer { free_crypto_result(decodeResult) }
