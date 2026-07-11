@@ -16,6 +16,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var settingsHostingController: NSHostingController<SettingsView>?
     private var menu: NSMenu!
+    // Items du menu « Conversation protégée » (FEAT-002), rafraîchis à l'ouverture
+    private var bindingStatusMenuItem: NSMenuItem?
+    private var unlinkMenuItem: NSMenuItem?
     // Sparkle : démarre le cycle de vérification des mises à jour (SUFeedURL de l'Info.plist)
     private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     
@@ -48,6 +51,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSNotification.Name("OpenSettings"),
             object: nil
         )
+
+        // Mode transparent (FEAT-002) : détection de la conversation liée active
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(transparentModeStateChanged),
+            name: ConversationActivityMonitor.stateDidChangeNotification,
+            object: nil
+        )
+        ConversationActivityMonitor.shared.start()
+        TransparentSendInterceptor.shared.start()
+        TransparentReadingPanelController.shared.start()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -178,7 +192,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // ✅ CORRECTION: Ajouter le menu passphrase ici
         addPassphraseMenu()
-        
+
+        // Mode transparent (FEAT-002) : liaison conversation ↔ passphrase
+        addTransparentModeMenu()
+
         // Préférences
         menu.addItem(NSMenuItem(title: "Préférences...", action: #selector(showSettings), keyEquivalent: ","))
 
@@ -231,6 +248,178 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
     }
     
+    // MARK: - Mode transparent (FEAT-002) — menu « Conversation protégée »
+
+    private func addTransparentModeMenu() {
+        let protectedItem = NSMenuItem(title: "Conversation protégée", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+
+        // État courant (mis à jour à chaque ouverture du menu)
+        let statusItem = NSMenuItem(title: "Aucune conversation liée", action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        submenu.addItem(statusItem)
+        bindingStatusMenuItem = statusItem
+
+        submenu.addItem(NSMenuItem.separator())
+
+        let linkItem = NSMenuItem(
+            title: "Lier la conversation active…",
+            action: #selector(linkActiveConversation),
+            keyEquivalent: ""
+        )
+        linkItem.target = self
+        submenu.addItem(linkItem)
+
+        let unlinkItem = NSMenuItem(
+            title: "Délier la conversation",
+            action: #selector(unlinkConversation),
+            keyEquivalent: ""
+        )
+        unlinkItem.target = self
+        unlinkItem.isEnabled = false
+        submenu.addItem(unlinkItem)
+        unlinkMenuItem = unlinkItem
+
+        protectedItem.submenu = submenu
+        menu.addItem(protectedItem)
+        menu.addItem(NSMenuItem.separator())
+    }
+
+    /// Indicateur d'activité dans la barre de menus : « ● » à côté du glyphe
+    /// quand la conversation liée est au premier plan. Observable en continu,
+    /// contrairement au menu (l'ouvrir désactive WhatsApp, donc l'état y serait
+    /// toujours « inactif »).
+    @objc private func transparentModeStateChanged() {
+        DispatchQueue.main.async { [weak self] in
+            guard let button = self?.statusItem.button else { return }
+            let isActive = ConversationActivityMonitor.shared.state.isActive
+            if button.image != nil {
+                button.title = isActive ? "●" : ""
+                button.imagePosition = isActive ? .imageLeft : .imageOnly
+            } else {
+                // Repli sans asset : le titre EST l'icône.
+                button.title = isActive ? "🔐●" : "🔐"
+            }
+            button.toolTip = isActive
+                ? "Manicrypt — conversation protégée active"
+                : "Manicrypt"
+        }
+    }
+
+    /// Reflète la liaison courante dans le menu (appelé avant chaque affichage).
+    private func updateBindingMenuStatus() {
+        if let binding = ConversationBindingManager.shared.currentBinding() {
+            bindingStatusMenuItem?.title = "🔗 \(binding.conversationTitle) — WhatsApp"
+            unlinkMenuItem?.isEnabled = true
+            unlinkMenuItem?.title = "Délier « \(binding.conversationTitle) »"
+        } else {
+            bindingStatusMenuItem?.title = "Aucune conversation liée"
+            unlinkMenuItem?.isEnabled = false
+            unlinkMenuItem?.title = "Délier la conversation"
+        }
+    }
+
+    /// Flux de liaison : permission AX → lecture du titre (réactive WhatsApp,
+    /// l'arbre AX n'existant qu'au premier plan) → saisie passphrase → Keychain.
+    @objc private func linkActiveConversation() {
+        guard PermissionsHelper.shared.hasAccessibilityPermission() else {
+            let alert = NSAlert()
+            alert.messageText = "Permission Accessibilité requise"
+            alert.informativeText = "Manicrypt a besoin de la permission Accessibilité pour lire le titre de la conversation WhatsApp."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Demander la permission")
+            alert.addButton(withTitle: "Annuler")
+            if alert.runModal() == .alertFirstButtonReturn {
+                PermissionsHelper.shared.triggerAccessibilityRequest()
+            }
+            return
+        }
+
+        ConversationAXReader.shared.readActiveConversationTitle { [weak self] result in
+            guard let self = self else { return }
+            // Ramener Manicrypt devant pour le dialogue (WhatsApp a pu être activé).
+            NSApp.activate(ignoringOtherApps: true)
+            switch result {
+            case .success(let title):
+                self.promptForBindingPassphrase(conversationTitle: title)
+            case .failure(let error):
+                self.showAlert(title: "Liaison impossible", message: error.userMessage)
+            }
+        }
+    }
+
+    private func promptForBindingPassphrase(conversationTitle: String) {
+        let alert = NSAlert()
+        alert.messageText = "Lier « \(conversationTitle) »"
+
+        var info = """
+        Les messages envoyés dans cette conversation WhatsApp partiront chiffrés, \
+        et les messages chiffrés reçus seront lisibles dans le panneau Manicrypt.
+
+        Entrez la passphrase partagée avec votre interlocuteur (il doit avoir \
+        Manicrypt et la même passphrase pour vous lire).
+        """
+        if let existing = ConversationBindingManager.shared.currentBinding() {
+            info += "\n\n⚠️ Remplace la liaison actuelle avec « \(existing.conversationTitle) »."
+        }
+        info += """
+        \n
+        Limite : la liaison repose sur le NOM affiché de la conversation. \
+        Si le contact est renommé, la protection s'arrête (re-lier). \
+        Deux contacts au même nom seraient traités comme la même conversation.
+        """
+        alert.informativeText = info
+
+        let passphraseField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        passphraseField.placeholderString = "Passphrase partagée"
+        alert.accessoryView = passphraseField
+        alert.window.initialFirstResponder = passphraseField
+
+        alert.addButton(withTitle: "Lier")
+        alert.addButton(withTitle: "Annuler")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let passphrase = passphraseField.stringValue
+        guard !passphrase.isEmpty else {
+            showAlert(title: "Passphrase vide", message: "La liaison n'a pas été créée : la passphrase ne peut pas être vide.")
+            return
+        }
+
+        do {
+            try ConversationBindingManager.shared.bind(
+                bundleID: ConversationAXReader.whatsAppBundleID,
+                conversationTitle: conversationTitle,
+                passphrase: passphrase
+            )
+            showAlert(
+                title: "Conversation liée ✅",
+                message: "« \(conversationTitle) » est maintenant liée. Le chiffrement transparent s'activera dans cette conversation (briques suivantes de FEAT-002)."
+            )
+        } catch let error as ConversationBindingManager.BindingError {
+            showAlert(title: "Échec de la liaison", message: error.userMessage)
+        } catch {
+            showAlert(title: "Échec de la liaison", message: error.localizedDescription)
+        }
+    }
+
+    @objc private func unlinkConversation() {
+        guard let binding = ConversationBindingManager.shared.currentBinding() else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Délier « \(binding.conversationTitle) » ?"
+        alert.informativeText = "Les messages de cette conversation ne seront plus chiffrés automatiquement. La passphrase associée sera supprimée du Keychain."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Délier")
+        alert.addButton(withTitle: "Annuler")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            ConversationBindingManager.shared.unbind()
+            showAlert(title: "Conversation déliée", message: "La liaison a été supprimée.")
+        }
+    }
+
     // ✅ AJOUT: Actions pour le menu passphrase
     @objc private func showPassphraseGenerator() {
         showPassphraseWindow(content: PassphraseGeneratorView())
@@ -426,6 +615,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func updateMenuStatus() {
+        // Statut de la liaison de conversation (FEAT-002)
+        updateBindingMenuStatus()
+
         // Mettre à jour le statut des raccourcis dans le menu
         if let hotkeySubmenu = menu.item(withTitle: "Raccourcis globaux")?.submenu,
            let statusItem = hotkeySubmenu.items.first(where: { $0.tag == 999 }) {
