@@ -62,6 +62,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ConversationActivityMonitor.shared.start()
         TransparentSendInterceptor.shared.start()
         TransparentReadingPanelController.shared.start()
+        // Overlay par-bulle (IMP-005) désactivé : calage imparfait (limite AX).
+        // Code conservé, on pourra y revenir. Le panneau de lecture reste actif.
+        // BubbleOverlayController.shared.start()
     }
     
     func applicationWillTerminate(_ notification: Notification) {

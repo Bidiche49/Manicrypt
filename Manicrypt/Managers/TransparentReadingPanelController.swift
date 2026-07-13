@@ -26,6 +26,10 @@ import SwiftUI
 final class TransparentReadingPanelController {
     static let shared = TransparentReadingPanelController()
 
+    /// Postée quand un VRAI nouveau message est détecté en bas du fil (envoi ou
+    /// réception). Consommée par l'overlay par-bulle (IMP-005).
+    static let newMessageDidAppearNotification = Notification.Name("ManicryptTransparentNewMessageDidAppear")
+
     private var panel: NSPanel?
     private let viewModel = TransparentReadingViewModel()
     private var refreshTimer: Timer?
@@ -37,6 +41,13 @@ final class TransparentReadingPanelController {
 
     /// Cadence de rafraîchissement pendant que le panneau est visible.
     private let refreshInterval: TimeInterval = 1.0
+
+    /// Vrai dès que l'utilisateur a déplacé le panneau à la main : on cesse alors
+    /// de le repositionner automatiquement (il respecte la position choisie).
+    /// Remis à zéro à la fermeture. `isProgrammaticFrameChange` distingue nos
+    /// propres déplacements des déplacements utilisateur dans `panelDidMove`.
+    private var userMovedPanel = false
+    private var isProgrammaticFrameChange = false
 
     private init() {
         viewModel.copyHandler = { [weak self] text in self?.copyPlaintext(text) }
@@ -123,8 +134,10 @@ final class TransparentReadingPanelController {
             self.viewModel.bubbles = []
             self.viewModel.undecryptableCount = 0
             self.viewModel.freshBubbleID = nil
-            // Prochaine ouverture : re-coller en bas dès le premier contenu.
+            // Prochaine ouverture : re-coller en bas dès le premier contenu, et
+            // ré-ancrer le panneau (oublier le déplacement manuel précédent).
             self.lastBottomSignature = nil
+            self.userMovedPanel = false
         }
     }
 
@@ -196,6 +209,13 @@ final class TransparentReadingPanelController {
             && lastBottomSignature != nil
         viewModel.freshBubbleID = isGenuineNewMessage ? newBottomID : nil
 
+        // Signaler le nouveau message aux consommateurs (overlay par-bulle,
+        // IMP-005). Simple trigger : le consommateur relit la bulle + sa frame.
+        if isGenuineNewMessage {
+            NotificationCenter.default.post(
+                name: Self.newMessageDidAppearNotification, object: nil)
+        }
+
         if decrypted != viewModel.bubbles { viewModel.bubbles = decrypted }
         if undecryptable != viewModel.undecryptableCount { viewModel.undecryptableCount = undecryptable }
 
@@ -211,10 +231,22 @@ final class TransparentReadingPanelController {
 
         // Laisser SwiftUI recalculer sa taille avec le nouveau contenu, puis
         // ajuster le panneau et le repositionner (évite un panneau figé à 200 px).
+        // Fenêtre « programmatique » : nos changements de frame ne doivent pas
+        // être pris pour un déplacement utilisateur (voir panelDidMove).
         DispatchQueue.main.async { [weak self] in
-            self?.resizePanelToFit()
-            self?.repositionPanel()
+            guard let self = self else { return }
+            self.isProgrammaticFrameChange = true
+            self.resizePanelToFit()
+            if !self.userMovedPanel { self.repositionPanel() }
+            DispatchQueue.main.async { self.isProgrammaticFrameChange = false }
         }
+    }
+
+    /// Déplacement du panneau détecté. S'il n'est pas d'origine programmatique,
+    /// c'est l'utilisateur → on fige la position (plus d'auto-repositionnement).
+    @objc private func panelDidMove(_ note: Notification) {
+        guard !isProgrammaticFrameChange else { return }
+        userMovedPanel = true
     }
 
     /// Ajuste la taille du panneau au contenu SwiftUI (hauteur plafonnée par la
@@ -267,6 +299,10 @@ final class TransparentReadingPanelController {
         panel.hasShadow = false // ombre portée par la carte SwiftUI
         panel.isReleasedWhenClosed = false
         panel.contentView = hosting
+        // Détecter les déplacements manuels pour cesser l'auto-repositionnement.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(panelDidMove(_:)),
+            name: NSWindow.didMoveNotification, object: panel)
         self.panel = panel
     }
 

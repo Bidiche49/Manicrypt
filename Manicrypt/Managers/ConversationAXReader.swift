@@ -154,6 +154,63 @@ final class ConversationAXReader {
         }
     }
 
+    /// Bulle visible localisée : mêmes infos que `VisibleBubble` + la frame ÉCRAN
+    /// (coordonnées Cocoa, origine bas-gauche) de la cellule. Sert à l'overlay
+    /// par-bulle (IMP-005). La frame est celle de la cellule pleine largeur ; la
+    /// bulle réellement peinte est alignée à droite (sortant) ou à gauche
+    /// (entrant) dans cette largeur.
+    struct LocatedBubble {
+        let direction: BubbleDirection
+        let rawLabel: String
+        let screenFrame: CGRect
+    }
+
+    /// Bulles visibles avec leur frame écran (haut → bas). WhatsApp frontmost.
+    func visibleBubblesLocated() -> [LocatedBubble] {
+        guard let app = appElement(),
+              let table = findElement(byIdentifier: AXID.messagesTable, in: app) else {
+            return []
+        }
+        var bubbles: [LocatedBubble] = []
+        collectLocatedBubbles(in: table, into: &bubbles)
+        return bubbles
+    }
+
+    private func collectLocatedBubbles(in element: AXUIElement, into bubbles: inout [LocatedBubble]) {
+        if stringAttribute(element, "AXIdentifier") == AXID.bubble {
+            let raw = stringAttribute(element, kAXDescriptionAttribute as String)
+                ?? stringAttribute(element, kAXValueAttribute as String)
+            if let raw = raw, let frame = screenFrame(of: element) {
+                let cleaned = Self.stripBidiMarks(raw)
+                bubbles.append(LocatedBubble(direction: Self.direction(of: cleaned),
+                                             rawLabel: cleaned, screenFrame: frame))
+            }
+        }
+        for child in childrenOf(element) {
+            collectLocatedBubbles(in: child, into: &bubbles)
+        }
+    }
+
+    /// Frame ÉCRAN (Cocoa, origine bas-gauche) d'un élément AX, ou `nil`.
+    func screenFrame(of element: AXUIElement) -> CGRect? {
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let posValue = posRef, let sizeValue = sizeRef,
+              CFGetTypeID(posValue) == AXValueGetTypeID(), CFGetTypeID(sizeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        AXValueGetValue(posValue as! AXValue, .cgPoint, &position)
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        guard let primary = NSScreen.screens.first else { return nil }
+        return CGRect(x: position.x,
+                      y: primary.frame.maxY - position.y - size.height,
+                      width: size.width, height: size.height)
+    }
+
     /// Retire les marqueurs directionnels invisibles (LRM/RLM/isolats bidi) dont
     /// WhatsApp préfixe/entoure ses labels d'accessibilité.
     static func stripBidiMarks(_ text: String) -> String {

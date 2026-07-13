@@ -119,6 +119,11 @@ struct TransparentReadingView: View {
             .help("Masquer le panneau")
         }
         .padding(12)
+        // Poignée de déplacement : le contenu SwiftUI capte la souris, donc
+        // `isMovableByWindowBackground` ne suffit pas — cette zone derrière
+        // l'en-tête initie le drag de la fenêtre (le bouton ✕, au-dessus, reste
+        // cliquable).
+        .background(WindowDragArea())
     }
 
     @ViewBuilder private var content: some View {
@@ -162,6 +167,19 @@ struct TransparentReadingView: View {
                 .font(.callout).foregroundStyle(.secondary)
         }
         .padding(16)
+    }
+}
+
+// MARK: - Zone de déplacement de fenêtre
+
+/// Vue AppKit transparente qui autorise le déplacement de la fenêtre au drag
+/// (le contenu SwiftUI capture sinon la souris). Placée derrière l'en-tête.
+struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DraggableNSView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DraggableNSView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
     }
 }
 
